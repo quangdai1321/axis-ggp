@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  clearWalletConnectStorage,
   getInjectedProvider,
   getWalletConnectProvider,
   isWalletConnectConfigured,
@@ -26,6 +27,12 @@ export default function WalletLogin() {
   const router = useRouter();
   const [pending, setPending] = useState(null); // "injected" | "walletconnect" | null
   const [error, setError] = useState(null);
+
+  // every fresh page load (F5, first visit) starts with a clean slate —
+  // no leftover pairing/session from a previous, possibly broken attempt
+  useEffect(() => {
+    clearWalletConnectStorage();
+  }, []);
 
   async function signInWithProvider(kind, provider) {
     setError(null);
