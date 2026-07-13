@@ -26,7 +26,14 @@ export default function WalletLogin() {
       router.push("/lobby");
       router.refresh();
     } catch (e) {
-      setError(e?.message || "Kết nối ví thất bại.");
+      const raw = e?.message || "";
+      if (raw.includes("eth_requestAccounts is missing or invalid")) {
+        setError(
+          "Ví từ chối kết nối hoặc chưa mở khoá. Mở ví, đăng nhập/mở khoá, rồi thử lại (nếu MetaMask có popup đang chờ, hãy xử lý nó trước)."
+        );
+      } else {
+        setError(raw || "Kết nối ví thất bại.");
+      }
     } finally {
       setPending(null);
     }
@@ -42,11 +49,17 @@ export default function WalletLogin() {
   }
 
   async function withWalletConnect() {
+    setError(null);
+    setPending("walletconnect");
     try {
       const provider = await getWalletConnectProvider();
+      if (!provider.session) {
+        await provider.connect();
+      }
       await signInWithProvider("walletconnect", provider);
     } catch (e) {
       setError(e?.message || "Không khởi tạo được WalletConnect.");
+      setPending(null);
     }
   }
 

@@ -45,3 +45,11 @@ export async function signOut() {
   revalidatePath("/", "layout");
   redirect("/");
 }
+
+// used by the client SignOutButton, which forces a hard reload afterwards
+// instead of relying on redirect()'s soft client-side navigation
+export async function signOutAction() {
+  const supabase = await createClient();
+  await supabase.auth.signOut();
+  revalidatePath("/", "layout");
+}

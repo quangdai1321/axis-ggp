@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
-import { signOut } from "@/app/login/actions";
 import BackgroundMusic from "./BackgroundMusic";
+import SignOutButton from "./SignOutButton";
 
 export default async function NavBar() {
   let profile = null;
@@ -50,11 +50,7 @@ export default async function NavBar() {
                   </span>
                 )}
               </span>
-              <form action={signOut}>
-                <button className="bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition">
-                  Đăng xuất
-                </button>
-              </form>
+              <SignOutButton />
             </div>
           ) : (
             <Link
