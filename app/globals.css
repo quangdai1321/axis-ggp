@@ -1,0 +1,26 @@
+@import url("https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@400;600;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: "Nunito", "Segoe UI", sans-serif;
+  background-color: #0a1a2f;
+  color: #f4f8ff;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0a1a2f;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e9bf0;
+  border-radius: 999px;
+}

@@ -1,0 +1,28 @@
+{
+  "name": "axis-gadget-grand-prix",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.110.2",
+    "next": "16.2.10",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "three": "0.169.0",
+    "undici": "^8.7.0"
+  },
+  "devDependencies": {
+    "autoprefixer": "10.4.20",
+    "postcss": "8.5.18",
+    "tailwindcss": "3.4.13"
+  },
+  "overrides": {
+    "postcss": "8.5.18"
+  }
+}
