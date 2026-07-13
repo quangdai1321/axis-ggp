@@ -3,7 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { getInjectedProvider, getWalletConnectProvider, isWalletConnectConfigured } from "@/lib/web3/wallet";
+import {
+  getInjectedProvider,
+  getWalletConnectProvider,
+  isWalletConnectConfigured,
+  resetWalletConnectProvider,
+} from "@/lib/web3/wallet";
 
 const STATEMENT = "Đăng nhập vào AXIS: Gadget Grand Prix bằng ví của bạn.";
 
@@ -58,7 +63,13 @@ export default function WalletLogin() {
       }
       await signInWithProvider("walletconnect", provider);
     } catch (e) {
-      setError(e?.message || "Không khởi tạo được WalletConnect.");
+      resetWalletConnectProvider();
+      const raw = e?.message;
+      setError(
+        raw && raw.trim()
+          ? raw
+          : "Kết nối WalletConnect bị rớt giữa chừng (thường do mạng chặn WebSocket qua proxy). Thử lại, hoặc dùng MetaMask nếu có sẵn extension."
+      );
       setPending(null);
     }
   }
