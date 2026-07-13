@@ -11,6 +11,15 @@ import {
 } from "@/lib/web3/wallet";
 
 const STATEMENT = "Đăng nhập vào AXIS: Gadget Grand Prix bằng ví của bạn.";
+const WALLETCONNECT_TIMEOUT_MS = 45000;
+
+function withTimeout(promise, ms, timeoutMessage) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 export default function WalletLogin() {
   const router = useRouter();
@@ -57,18 +66,30 @@ export default function WalletLogin() {
     setError(null);
     setPending("walletconnect");
     try {
-      const provider = await getWalletConnectProvider();
+      const provider = await withTimeout(
+        getWalletConnectProvider(),
+        WALLETCONNECT_TIMEOUT_MS,
+        "Không khởi tạo được WalletConnect (hết thời gian chờ)."
+      );
       if (!provider.session) {
-        await provider.connect();
+        await withTimeout(
+          provider.connect(),
+          WALLETCONNECT_TIMEOUT_MS,
+          "Hết thời gian chờ quét QR / duyệt kết nối trên ví."
+        );
       }
-      await signInWithProvider("walletconnect", provider);
+      await withTimeout(
+        signInWithProvider("walletconnect", provider),
+        WALLETCONNECT_TIMEOUT_MS,
+        "Hết thời gian chờ ví duyệt chữ ký đăng nhập."
+      );
     } catch (e) {
       resetWalletConnectProvider();
       const raw = e?.message;
       setError(
-        raw && raw.trim()
+        raw && raw.trim() && !raw.includes("eth_requestAccounts is missing or invalid")
           ? raw
-          : "Kết nối WalletConnect bị rớt giữa chừng (thường do mạng chặn WebSocket qua proxy). Thử lại, hoặc dùng MetaMask nếu có sẵn extension."
+          : "Kết nối WalletConnect bị rớt/hết thời gian chờ (thường do mạng chặn WebSocket duy trì lâu qua proxy). Thử lại, hoặc dùng MetaMask nếu có sẵn extension — không phụ thuộc WebSocket nên ổn định hơn trên mạng hạn chế."
       );
       setPending(null);
     }
