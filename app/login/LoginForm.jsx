@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { signIn, signUp } from "./actions";
+import WalletLogin from "./WalletLogin";
 
 const initialState = { error: null, success: null };
 
@@ -97,6 +98,8 @@ export default function LoginForm() {
           </button>
         </form>
       )}
+
+      <WalletLogin />
     </div>
   );
 }

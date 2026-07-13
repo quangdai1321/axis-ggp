@@ -60,6 +60,27 @@ WebSocket đồng bộ vật lý phức tạp, vẫn nằm gọn trong free tier
    Chỉ tài khoản `is_admin = true` mới thấy nút **Bắt đầu đua** / **Ván mới**
    trong Sảnh chờ.
 
+7. **(Tuỳ chọn) Bật đăng nhập bằng ví EVM**: vào **Authentication → Sign In /
+   Providers → Web3** trong Supabase Dashboard, bật **Ethereum**. Không cần
+   bước này nếu chỉ dùng đăng nhập email/mật khẩu.
+
+## 1b. (Tuỳ chọn) WalletConnect cho đăng nhập bằng ví
+
+Nút **MetaMask** hoạt động ngay không cần cấu hình gì (dùng thẳng ví trình
+duyệt qua `window.ethereum`). Nút **WalletConnect** (quét QR bằng ví mobile)
+cần 1 Project ID miễn phí:
+
+1. Vào [cloud.reown.com](https://cloud.reown.com) (trước đây là WalletConnect
+   Cloud) → đăng nhập → **Create Project**.
+2. Copy **Project ID**, thêm vào `.env.local`:
+
+   ```bash
+   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your-project-id
+   ```
+
+Không có biến này thì nút WalletConnect sẽ tự disable, nút MetaMask vẫn dùng
+được bình thường.
+
 ## 2. Chạy local
 
 ```bash

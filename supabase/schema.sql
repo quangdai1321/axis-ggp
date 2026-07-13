@@ -33,10 +33,20 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
+  -- email is null for Web3 (wallet) sign-ins, so fall back to the wallet
+  -- address if present, then to a short id-based handle as a last resort
   insert into public.profiles (id, username)
   values (
     new.id,
-    coalesce(new.raw_user_meta_data ->> 'username', split_part(new.email, '@', 1))
+    coalesce(
+      new.raw_user_meta_data ->> 'username',
+      nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
+      case
+        when new.raw_user_meta_data ->> 'address' is not null
+          then 'wallet_' || substr(new.raw_user_meta_data ->> 'address', 3, 6)
+      end,
+      'wallet_' || substr(new.id::text, 1, 8)
+    )
   )
   on conflict (id) do nothing;
   return new;
