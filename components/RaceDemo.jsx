@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { createAxisLogoTexture } from "../lib/three/axisLogoTexture";
+import { addTrackScenery, animateTrackScenery } from "../lib/three/trackScenery";
 
 const GADGETS = [
   { name: "Rocket Shoes", color: 0xffcf3a, effect: "boost" },
@@ -124,6 +125,8 @@ export default function RaceDemo() {
       scene.add(box);
     }
 
+    const scenery = addTrackScenery(scene, THREE, TRACK_RADIUS);
+
     // player car
     function makeCar(color) {
       const group = new THREE.Group();
@@ -212,9 +215,20 @@ export default function RaceDemo() {
 
     // input
     const keys = {};
+    const controlKeys = new Set([
+      "Space",
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "KeyW",
+      "KeyA",
+      "KeyS",
+      "KeyD",
+    ]);
     const onKeyDown = (e) => {
       keys[e.code] = true;
-      if (e.code === "Space") e.preventDefault();
+      if (controlKeys.has(e.code)) e.preventDefault();
     };
     const onKeyUp = (e) => {
       keys[e.code] = false;
@@ -242,6 +256,8 @@ export default function RaceDemo() {
       frameId = requestAnimationFrame(animate);
       const dt = Math.min(clock.getDelta(), 0.05);
       const t = clock.elapsedTime;
+
+      animateTrackScenery(scenery, t, dt);
 
       const accel = keys["ArrowUp"] || keys["KeyW"];
       const brake = keys["ArrowDown"] || keys["KeyS"];

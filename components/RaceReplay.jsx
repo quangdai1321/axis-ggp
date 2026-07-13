@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { createAxisLogoTexture } from "../lib/three/axisLogoTexture";
+import { addTrackScenery, animateTrackScenery } from "../lib/three/trackScenery";
 
 const TRACK_RADIUS = 26;
 const LANE_COUNT = 6;
@@ -96,6 +97,9 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
       return { entry, mesh, laneRadius };
     });
 
+    const scenery = addTrackScenery(scene, THREE, TRACK_RADIUS);
+    const sceneryClock = new THREE.Clock();
+
     const totalAngle = laps * Math.PI * 2;
     const startedAtMs = startedAt ? new Date(startedAt).getTime() : null;
     const maxFinish = Math.max(...entries.map((e) => e.finish_time ?? 999));
@@ -104,6 +108,7 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
     function animate() {
       frameId = requestAnimationFrame(animate);
       const elapsed = startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0;
+      animateTrackScenery(scenery, sceneryClock.elapsedTime, sceneryClock.getDelta());
 
       const live = cars.map(({ entry, mesh, laneRadius }) => {
         const finishTime = entry.finish_time ?? maxFinish;

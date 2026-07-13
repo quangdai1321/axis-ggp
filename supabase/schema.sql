@@ -178,3 +178,4 @@ begin
     alter publication supabase_realtime add table public.race_sessions;
   end if;
 end $$;
+
