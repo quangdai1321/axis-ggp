@@ -8,6 +8,7 @@ import {
   getWalletConnectProvider,
   isWalletConnectConfigured,
   resetWalletConnectProvider,
+  syncApprovedChain,
 } from "@/lib/web3/wallet";
 
 const STATEMENT = "Đăng nhập vào AXIS: Gadget Grand Prix bằng ví của bạn.";
@@ -78,6 +79,7 @@ export default function WalletLogin() {
           "Hết thời gian chờ quét QR / duyệt kết nối trên ví."
         );
       }
+      syncApprovedChain(provider);
       await withTimeout(
         signInWithProvider("walletconnect", provider),
         WALLETCONNECT_TIMEOUT_MS,
