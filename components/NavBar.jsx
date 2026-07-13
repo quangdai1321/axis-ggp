@@ -2,6 +2,7 @@ import Link from "next/link";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/app/login/actions";
+import BackgroundMusic from "./BackgroundMusic";
 
 export default async function NavBar() {
   let profile = null;
@@ -29,6 +30,7 @@ export default async function NavBar() {
           AXIS <span className="text-axis-yellow">GGP</span>
         </Link>
         <div className="flex items-center gap-4 sm:gap-6 text-sm font-bold flex-wrap justify-end">
+          <BackgroundMusic />
           <Link href="/lobby" className="text-white/80 hover:text-white transition">
             Sảnh chờ
           </Link>
