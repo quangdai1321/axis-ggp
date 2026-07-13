@@ -158,3 +158,23 @@ create policy "Users can drop their own car while lobby is open"
 create policy "Only admins can write race results"
   on public.race_entries for update
   using (exists (select 1 from public.profiles where id = auth.uid() and is_admin));
+
+-- =========================================================
+-- 5. Bật Realtime cho Sảnh chờ (ai chọn/bỏ xe thấy ngay không cần refresh)
+-- =========================================================
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'race_entries'
+  ) then
+    alter publication supabase_realtime add table public.race_entries;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'race_sessions'
+  ) then
+    alter publication supabase_realtime add table public.race_sessions;
+  end if;
+end $$;

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { createAxisLogoTexture } from "../lib/three/axisLogoTexture";
 
 const TRACK_RADIUS = 26;
 const LANE_COUNT = 6;
@@ -70,6 +71,15 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
     track.position.y = 0.01;
     scene.add(track);
 
+    const logoTexture = createAxisLogoTexture(THREE);
+    const logo = new THREE.Mesh(
+      new THREE.CircleGeometry(TRACK_RADIUS - 9, 64),
+      new THREE.MeshBasicMaterial({ map: logoTexture })
+    );
+    logo.rotation.x = -Math.PI / 2;
+    logo.position.y = 0.015;
+    scene.add(logo);
+
     const finishLine = new THREE.Mesh(
       new THREE.PlaneGeometry(16, 0.6),
       new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
@@ -129,6 +139,7 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
       renderer.dispose();
+      logoTexture.dispose();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {

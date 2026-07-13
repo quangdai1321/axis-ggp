@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
+import { createAxisLogoTexture } from "../lib/three/axisLogoTexture";
 
 const GADGETS = [
   { name: "Rocket Shoes", color: 0xffcf3a, effect: "boost" },
@@ -95,6 +96,16 @@ export default function RaceDemo() {
     laneMarks.rotation.x = -Math.PI / 2;
     laneMarks.position.y = 0.02;
     scene.add(laneMarks);
+
+    // AXIS ROBOTICS emblem in the middle of the ring
+    const logoTexture = createAxisLogoTexture(THREE);
+    const logo = new THREE.Mesh(
+      new THREE.CircleGeometry(TRACK_RADIUS - 7, 64),
+      new THREE.MeshBasicMaterial({ map: logoTexture })
+    );
+    logo.rotation.x = -Math.PI / 2;
+    logo.position.y = 0.015;
+    scene.add(logo);
 
     // scenery: colorful buildings around the ring, Nobita Town vibe
     const buildingColors = [0xff6fa1, 0xffcf3a, 0x1e9bf0, 0x53e07a, 0xff9a3c];
@@ -428,6 +439,7 @@ export default function RaceDemo() {
       window.removeEventListener("keyup", onKeyUp);
       resizeObserver.disconnect();
       renderer.dispose();
+      logoTexture.dispose();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {
