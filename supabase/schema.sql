@@ -15,14 +15,17 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+drop policy if exists "Profiles are viewable by everyone" on public.profiles;
 create policy "Profiles are viewable by everyone"
   on public.profiles for select
   using (true);
 
+drop policy if exists "Users can insert their own profile" on public.profiles;
 create policy "Users can insert their own profile"
   on public.profiles for insert
   with check (auth.uid() = id);
 
+drop policy if exists "Users can update their own profile" on public.profiles;
 create policy "Users can update their own profile"
   on public.profiles for update
   using (auth.uid() = id);
@@ -74,6 +77,7 @@ create table if not exists public.car_slots (
 
 alter table public.car_slots enable row level security;
 
+drop policy if exists "Car slots are viewable by everyone" on public.car_slots;
 create policy "Car slots are viewable by everyone"
   on public.car_slots for select
   using (true);
@@ -106,14 +110,17 @@ create table if not exists public.race_sessions (
 
 alter table public.race_sessions enable row level security;
 
+drop policy if exists "Sessions are viewable by everyone" on public.race_sessions;
 create policy "Sessions are viewable by everyone"
   on public.race_sessions for select
   using (true);
 
+drop policy if exists "Only admins can create sessions" on public.race_sessions;
 create policy "Only admins can create sessions"
   on public.race_sessions for insert
   with check (exists (select 1 from public.profiles where id = auth.uid() and is_admin));
 
+drop policy if exists "Only admins can update sessions" on public.race_sessions;
 create policy "Only admins can update sessions"
   on public.race_sessions for update
   using (exists (select 1 from public.profiles where id = auth.uid() and is_admin));
@@ -141,10 +148,12 @@ create table if not exists public.race_entries (
 
 alter table public.race_entries enable row level security;
 
+drop policy if exists "Entries are viewable by everyone" on public.race_entries;
 create policy "Entries are viewable by everyone"
   on public.race_entries for select
   using (true);
 
+drop policy if exists "Users can claim a car for themselves while lobby is open" on public.race_entries;
 create policy "Users can claim a car for themselves while lobby is open"
   on public.race_entries for insert
   with check (
@@ -155,6 +164,7 @@ create policy "Users can claim a car for themselves while lobby is open"
     )
   );
 
+drop policy if exists "Users can drop their own car while lobby is open" on public.race_entries;
 create policy "Users can drop their own car while lobby is open"
   on public.race_entries for delete
   using (
@@ -165,6 +175,7 @@ create policy "Users can drop their own car while lobby is open"
     )
   );
 
+drop policy if exists "Only admins can write race results" on public.race_entries;
 create policy "Only admins can write race results"
   on public.race_entries for update
   using (exists (select 1 from public.profiles where id = auth.uid() and is_admin));
