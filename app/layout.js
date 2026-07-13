@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import "./globals.css";
 import NavBar from "../components/NavBar";
+import NavBarSkeleton from "../components/NavBarSkeleton";
 
 export const metadata = {
   title: "AXIS: Gadget Grand Prix",
@@ -14,7 +16,9 @@ export default function RootLayout({ children }) {
   return (
     <html lang="vi">
       <body>
-        <NavBar />
+        <Suspense fallback={<NavBarSkeleton />}>
+          <NavBar />
+        </Suspense>
         {children}
       </body>
     </html>

@@ -257,7 +257,7 @@ export default function RaceDemo() {
       else state.speed *= 0.98;
 
       if (Math.abs(state.speed) > 0.2) {
-        const turn = (left ? 1 : 0) - (right ? 1 : 0);
+        const turn = (right ? 1 : 0) - (left ? 1 : 0);
         state.heading += turn * dt * 1.8 * Math.sign(state.speed || 1);
       }
 
