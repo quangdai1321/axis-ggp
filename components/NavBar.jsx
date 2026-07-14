@@ -31,6 +31,14 @@ export default async function NavBar() {
         </Link>
         <div className="flex items-center gap-4 sm:gap-6 text-sm font-bold flex-wrap justify-end">
           <BackgroundMusic />
+          <a
+            href="https://hub.axisrobotics.ai/login?invite_code=cFs0hfZE"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-axis-yellow hover:text-white transition"
+          >
+            Làm task Axis ↗
+          </a>
           <Link href="/lobby" className="text-white/80 hover:text-white transition">
             Sảnh chờ
           </Link>
