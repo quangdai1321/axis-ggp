@@ -58,6 +58,17 @@ export default function LobbySection({ session: initialSession, carSlots, initia
     if (startRaceState.success) router.push("/race");
   }, [startRaceState.success, router]);
 
+  // "Ván mới" inserts a brand-new session row (different id) — the local
+  // state above was seeded once from the first initialSession and never
+  // re-syncs on its own, so without this the UI stays stuck showing the
+  // previous (finished) session forever after clicking it
+  useEffect(() => {
+    setSession(initialSession);
+    setEntries(initialEntries);
+    setTrackId(initialSession?.track_id ?? DEFAULT_TRACK_ID);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSession?.id]);
+
   useEffect(() => {
     if (!initialSession) return;
     const supabase = createClient();
