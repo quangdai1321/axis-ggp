@@ -104,9 +104,12 @@ create table if not exists public.race_sessions (
   id bigint generated always as identity primary key,
   status text not null default 'lobby' check (status in ('lobby', 'racing', 'finished')),
   laps smallint not null default 2,
+  track_id text not null default 'gp-circuit',
   started_at timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table public.race_sessions add column if not exists track_id text not null default 'gp-circuit';
 
 alter table public.race_sessions enable row level security;
 

@@ -1,195 +1,125 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import * as THREE from "three";
-import { createAxisLogoTexture } from "../lib/three/axisLogoTexture";
-import { addTrackScenery, animateTrackScenery } from "../lib/three/trackScenery";
-import {
-  createSkyDome,
-  createGroundMaterial,
-  createTrackMaterial,
-  createCurbMaterial,
-  addCityscape,
-} from "../lib/three/environment";
+import { getTrackById } from "../lib/tracks";
+import { createAxisLogoDataUrl } from "../lib/axisLogoCanvas";
 
-const TRACK_RADIUS = 26;
-const LANE_COUNT = 6;
+const LANE_COUNT = 10;
+const LANE_SPACING = 5.5;
+const TRAIL_LEN = 9; // percent of path length
+const CAR_POLY = "0,-6 9,0 0,6 2.5,0";
+const CONFETTI_COLORS = ["#ff6fa1", "#ffcf3a", "#1e9bf0", "#53e07a", "#ff9a3c"];
 
-function makeCar(color) {
-  const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.6, 0.6, 3),
-    new THREE.MeshStandardMaterial({ color })
+function StartMarker({ pathD }) {
+  const match = /^M\s*([\d.]+)[,\s]+([\d.]+)/.exec(pathD);
+  if (!match) return null;
+  const x = parseFloat(match[1]);
+  const y = parseFloat(match[2]);
+  const cell = 5;
+  const cells = [];
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      if ((row + col) % 2 === 0) continue;
+      cells.push(<rect key={`${row}-${col}`} x={col * cell} y={row * cell} width={cell} height={cell} fill="#000" />);
+    }
+  }
+  return (
+    <g transform={`translate(${x - 10} ${y - 10})`}>
+      <rect width="20" height="20" fill="#fff" />
+      {cells}
+    </g>
   );
-  body.position.y = 0.55;
-  body.castShadow = true;
-  group.add(body);
-  const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(1.1, 0.5, 1.4),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-  cabin.position.set(0, 1.0, -0.2);
-  cabin.castShadow = true;
-  group.add(cabin);
-  return group;
 }
 
-export default function RaceReplay({ entries, laps, startedAt, status }) {
-  const mountRef = useRef(null);
+function Confetti() {
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {Array.from({ length: 28 }, (_, i) => (
+        <span
+          key={i}
+          className="confetti-piece absolute top-0 w-2 h-2 rounded-sm"
+          style={{
+            left: `${(i * 37) % 100}%`,
+            backgroundColor: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+            animationDelay: `${(i % 10) * 0.15}s`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export default function RaceReplay({ entries, laps, startedAt, status, trackId }) {
+  const pathRef = useRef(null);
+  const carRefs = useRef([]);
+  const trailRefs = useRef([]);
   const [standings, setStandings] = useState([]);
   const [raceOver, setRaceOver] = useState(false);
+  const [logoUrl, setLogoUrl] = useState(null);
+
+  const track = getTrackById(trackId);
 
   useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount || status === "lobby" || entries.length === 0) return;
+    setLogoUrl(createAxisLogoDataUrl());
+  }, []);
 
-    let width = mount.clientWidth;
-    let height = mount.clientHeight;
+  useEffect(() => {
+    if (status === "lobby" || entries.length === 0) return;
+    const pathEl = pathRef.current;
+    if (!pathEl) return;
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x8fd6ff);
-    scene.fog = new THREE.Fog(0x8fd6ff, 50, 160);
-
-    const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 500);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(width, height);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
-    mount.appendChild(renderer.domElement);
-
-    const sky = createSkyDome(THREE);
-    scene.add(sky);
-
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x2a5a3a, 0.9));
-    const sun = new THREE.DirectionalLight(0xffffff, 1.1);
-    sun.position.set(20, 30, 10);
-    sun.castShadow = true;
-    scene.add(sun);
-
-    const groundMaterial = createGroundMaterial(THREE);
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(70, 48), groundMaterial);
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    scene.add(ground);
-
-    const trackMaterial = createTrackMaterial(THREE);
-    const track = new THREE.Mesh(
-      new THREE.RingGeometry(TRACK_RADIUS - 8, TRACK_RADIUS + 8, 64),
-      trackMaterial
-    );
-    track.rotation.x = -Math.PI / 2;
-    track.position.y = 0.01;
-    scene.add(track);
-
-    const curbMaterial = createCurbMaterial(THREE);
-    const innerCurb = new THREE.Mesh(
-      new THREE.RingGeometry(TRACK_RADIUS - 8.6, TRACK_RADIUS - 8, 64),
-      curbMaterial
-    );
-    innerCurb.rotation.x = -Math.PI / 2;
-    innerCurb.position.y = 0.02;
-    scene.add(innerCurb);
-    const outerCurb = new THREE.Mesh(
-      new THREE.RingGeometry(TRACK_RADIUS + 8, TRACK_RADIUS + 8.6, 64),
-      curbMaterial
-    );
-    outerCurb.rotation.x = -Math.PI / 2;
-    outerCurb.position.y = 0.02;
-    scene.add(outerCurb);
-
-    addCityscape(scene, THREE, TRACK_RADIUS);
-
-    const logoTexture = createAxisLogoTexture(THREE);
-    const logo = new THREE.Mesh(
-      new THREE.CircleGeometry(TRACK_RADIUS - 9, 64),
-      new THREE.MeshBasicMaterial({ map: logoTexture })
-    );
-    logo.rotation.x = -Math.PI / 2;
-    logo.position.y = 0.015;
-    scene.add(logo);
-
-    const finishLine = new THREE.Mesh(
-      new THREE.PlaneGeometry(16, 0.6),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide })
-    );
-    finishLine.rotation.x = -Math.PI / 2;
-    finishLine.position.set(TRACK_RADIUS, 0.03, 0);
-    scene.add(finishLine);
-
-    const cars = entries.map((entry, i) => {
-      const mesh = makeCar(entry.color_hex ? parseInt(entry.color_hex.replace("#", "0x")) : 0xffffff);
-      scene.add(mesh);
-      const lane = i % LANE_COUNT;
-      const laneRadius = TRACK_RADIUS + (lane - (LANE_COUNT - 1) / 2) * 2.2;
-      return { entry, mesh, laneRadius };
-    });
-
-    const scenery = addTrackScenery(scene, THREE, TRACK_RADIUS);
-    const sceneryClock = new THREE.Clock();
-
-    const totalAngle = laps * Math.PI * 2;
-    const startedAtMs = startedAt ? new Date(startedAt).getTime() : null;
+    const totalLength = pathEl.getTotalLength();
     const maxFinish = Math.max(...entries.map((e) => e.finish_time ?? 999));
+    const startedAtMs = startedAt ? new Date(startedAt).getTime() : null;
 
-    let frameId;
-    function animate() {
-      frameId = requestAnimationFrame(animate);
+    function updateFrame() {
       const elapsed = startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0;
-      animateTrackScenery(scenery, sceneryClock.elapsedTime, sceneryClock.getDelta());
 
-      const live = cars.map(({ entry, mesh, laneRadius }) => {
+      const live = entries.map((entry, i) => {
         const finishTime = entry.finish_time ?? maxFinish;
         const progress = Math.min(1, Math.max(0, elapsed / finishTime));
-        const angle = progress * totalAngle;
-        mesh.position.set(Math.cos(angle) * laneRadius, 0, Math.sin(angle) * laneRadius);
-        mesh.rotation.y = -angle - Math.PI / 2 + Math.PI / 2;
-        return { nickname: entry.nickname, progress, finished: progress >= 1, position: entry.position };
+        const distance = totalLength ? (progress * laps * totalLength) % totalLength : 0;
+        const p = pathEl.getPointAtLength(distance);
+        const p2 = pathEl.getPointAtLength(Math.min(totalLength, distance + 1));
+        const angleRad = Math.atan2(p2.y - p.y, p2.x - p.x);
+        const lane = i % LANE_COUNT;
+        const laneOffset = (lane - (LANE_COUNT - 1) / 2) * LANE_SPACING;
+        const nx = Math.cos(angleRad + Math.PI / 2) * laneOffset;
+        const ny = Math.sin(angleRad + Math.PI / 2) * laneOffset;
+        const x = p.x + nx;
+        const y = p.y + ny;
+        const deg = (angleRad * 180) / Math.PI;
+
+        const g = carRefs.current[i];
+        if (g) g.setAttribute("transform", `translate(${x} ${y}) rotate(${deg})`);
+
+        const trail = trailRefs.current[i];
+        if (trail && totalLength) {
+          const progressPct = (distance / totalLength) * 100;
+          trail.setAttribute("stroke-dashoffset", String(TRAIL_LEN - progressPct));
+        }
+
+        return {
+          id: entry.id,
+          nickname: entry.nickname,
+          progress,
+          finished: progress >= 1,
+          colorHex: entry.color_hex || "#ffffff",
+        };
       });
 
       live.sort((a, b) => b.progress - a.progress);
       setStandings(live);
       if (elapsed >= maxFinish) setRaceOver(true);
-
-      const camAngle = elapsed * 0.05;
-      camera.position.set(Math.cos(camAngle) * 55, 32, Math.sin(camAngle) * 55);
-      camera.lookAt(0, 0, 0);
-
-      renderer.render(scene, camera);
     }
-    animate();
 
-    const resizeObserver = new ResizeObserver(() => {
-      width = mount.clientWidth;
-      height = mount.clientHeight;
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height);
+    updateFrame();
+    let frameId = requestAnimationFrame(function loop() {
+      updateFrame();
+      frameId = requestAnimationFrame(loop);
     });
-    resizeObserver.observe(mount);
-
-    return () => {
-      cancelAnimationFrame(frameId);
-      resizeObserver.disconnect();
-      renderer.dispose();
-      logoTexture.dispose();
-      groundMaterial.map?.dispose();
-      trackMaterial.map?.dispose();
-      curbMaterial.map?.dispose();
-      sky.material.map?.dispose();
-      scene.traverse((obj) => {
-        if (obj.geometry) obj.geometry.dispose();
-        if (obj.material) {
-          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
-          else obj.material.dispose();
-        }
-      });
-      if (mount.contains(renderer.domElement)) mount.removeChild(renderer.domElement);
-    };
-  }, [entries, laps, startedAt, status]);
+    return () => cancelAnimationFrame(frameId);
+  }, [entries, laps, startedAt, status, trackId]);
 
   if (status === "lobby" || entries.length === 0) {
     return (
@@ -201,32 +131,119 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
     );
   }
 
+  const clipId = `logoClip-${track.id}`;
+
   return (
     <div className="grid lg:grid-cols-[1fr_260px] gap-4">
-      <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-4 border-axis-blue shadow-2xl">
-        <div ref={mountRef} className="absolute inset-0" />
+      <div className="relative rounded-2xl overflow-hidden border-2 border-white/10 bg-[#0a0a0f]">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3 border-b border-white/10">
+          <span className="flex items-center gap-2 text-xs sm:text-sm font-bold tracking-wide text-white/70 uppercase">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                status === "racing" ? "bg-red-500 animate-pulse" : "bg-white/30"
+              }`}
+            />
+            {track.name}
+          </span>
+          <span className="text-xs sm:text-sm font-bold text-axis-yellow uppercase tracking-wide">
+            {entries.length} xe · {status === "racing" ? "Đang đua" : "Đã kết thúc"} · {laps} vòng
+          </span>
+        </div>
+
+        <svg viewBox={track.viewBox} className="w-full h-auto block">
+          <defs>
+            <pattern id="axisGrid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <circle cx="1" cy="1" r="1" fill="#1c1c24" />
+            </pattern>
+            <clipPath id={clipId}>
+              <circle cx={track.center.x} cy={track.center.y} r={track.logoRadius} />
+            </clipPath>
+          </defs>
+          <rect width="100%" height="100%" fill="#0d0d13" />
+          <rect width="100%" height="100%" fill="url(#axisGrid)" />
+
+          {logoUrl && (
+            <image
+              href={logoUrl}
+              x={track.center.x - track.logoRadius}
+              y={track.center.y - track.logoRadius}
+              width={track.logoRadius * 2}
+              height={track.logoRadius * 2}
+              clipPath={`url(#${clipId})`}
+              opacity="0.95"
+            />
+          )}
+
+          <path d={track.d} fill="none" stroke="#24242e" strokeWidth="64" strokeLinejoin="round" />
+          <path
+            d={track.d}
+            fill="none"
+            stroke="#1e9bf0"
+            strokeWidth="2"
+            strokeDasharray="4 22"
+            opacity="0.5"
+            className="track-flow-line"
+          />
+          <path ref={pathRef} d={track.d} fill="none" stroke="none" />
+
+          <StartMarker pathD={track.d} />
+
+          {entries.map((entry, i) => (
+            <g key={entry.id}>
+              <path
+                ref={(el) => (trailRefs.current[i] = el)}
+                d={track.d}
+                fill="none"
+                stroke={entry.color_hex || "#ffffff"}
+                strokeWidth="5"
+                strokeLinecap="round"
+                pathLength={100}
+                strokeDasharray={`${TRAIL_LEN} ${100 - TRAIL_LEN}`}
+                opacity="0.5"
+              />
+              <g
+                ref={(el) => (carRefs.current[i] = el)}
+                style={{ filter: `drop-shadow(0 0 4px ${entry.color_hex || "#fff"})` }}
+              >
+                <polygon points={CAR_POLY} fill={entry.color_hex || "#ffffff"} />
+              </g>
+            </g>
+          ))}
+        </svg>
+
         {raceOver && (
-          <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
-            <span className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full">
-              🏁 Đua xong! Vào Sảnh chờ để xem admin chốt kết quả.
-            </span>
-          </div>
+          <>
+            <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
+              <span className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full">
+                🏁 Đua xong! Vào Sảnh chờ để xem admin chốt kết quả.
+              </span>
+            </div>
+            <Confetti />
+          </>
         )}
+
+        <div className="flex flex-wrap gap-x-4 gap-y-2 px-4 sm:px-5 py-3 border-t border-white/10 max-h-24 overflow-y-auto">
+          {entries.map((entry) => (
+            <span key={entry.id} className="flex items-center gap-1.5 text-xs text-white/70">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color_hex || "#fff" }} />
+              {entry.nickname}
+            </span>
+          ))}
+        </div>
       </div>
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-4 max-h-[400px] overflow-y-auto">
+
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-4 max-h-[500px] overflow-y-auto">
         <p className="font-display font-extrabold mb-3 text-axis-yellow text-sm uppercase tracking-wide">
           Bảng xếp hạng trực tiếp
         </p>
         <ol className="space-y-2 text-sm">
           {standings.map((s, i) => (
-            <li
-              key={s.nickname + i}
-              className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2"
-            >
-              <span className="font-bold truncate">
-                {i + 1}. {s.nickname}
+            <li key={s.id} className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2">
+              <span className="font-bold truncate flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.colorHex }} />
+                {i === 0 ? "👑" : `${i + 1}.`} {s.nickname}
               </span>
-              <span className="text-white/60 text-xs">
+              <span className="text-white/60 text-xs shrink-0">
                 {s.finished ? "🏁 Về đích" : `${Math.round(s.progress * 100)}%`}
               </span>
             </li>

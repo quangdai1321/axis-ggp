@@ -18,7 +18,7 @@ export default async function RacePage() {
   const supabase = await createClient();
   const { data: session } = await supabase
     .from("race_sessions")
-    .select("id, status, laps, started_at")
+    .select("id, status, laps, started_at, track_id")
     .order("id", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -51,6 +51,7 @@ export default async function RacePage() {
         laps={session?.laps ?? 2}
         startedAt={session?.started_at ?? null}
         status={session?.status ?? "lobby"}
+        trackId={session?.track_id}
       />
     </main>
   );

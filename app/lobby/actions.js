@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { TRACKS, DEFAULT_TRACK_ID } from "@/lib/tracks";
 
 const LAP_BASE_SECONDS = 25;
 
@@ -89,9 +90,12 @@ export async function startRace(formData) {
     )
   );
 
+  const requestedTrackId = formData.get("trackId")?.toString();
+  const trackId = TRACKS.some((t) => t.id === requestedTrackId) ? requestedTrackId : DEFAULT_TRACK_ID;
+
   await supabase
     .from("race_sessions")
-    .update({ status: "racing", started_at: new Date().toISOString() })
+    .update({ status: "racing", started_at: new Date().toISOString(), track_id: trackId })
     .eq("id", sessionId);
 
   revalidatePath("/lobby");

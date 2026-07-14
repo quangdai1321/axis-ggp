@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { claimCar, dropCar, startRace, newSession, finishSession } from "./actions";
+import { TRACKS, DEFAULT_TRACK_ID } from "@/lib/tracks";
 
 const STATUS_LABEL = {
   lobby: "Đang mở — chọn xe đi!",
@@ -15,6 +16,7 @@ export default function LobbySection({ session: initialSession, carSlots, initia
   const [session, setSession] = useState(initialSession);
   const [entries, setEntries] = useState(initialEntries);
   const [live, setLive] = useState(false);
+  const [trackId, setTrackId] = useState(initialSession?.track_id ?? DEFAULT_TRACK_ID);
 
   useEffect(() => {
     if (!initialSession) return;
@@ -89,14 +91,31 @@ export default function LobbySection({ session: initialSession, carSlots, initia
             Điều khiển admin
           </span>
           {session.status === "lobby" && (
-            <form action={startRace}>
+            <form action={startRace} className="flex flex-col gap-2">
               <input type="hidden" name="sessionId" value={session.id} />
-              <button
-                disabled={entries.length === 0}
-                className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full disabled:opacity-40 hover:scale-105 transition"
-              >
-                🏁 Bắt đầu đua ({entries.length} xe)
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <select
+                  name="trackId"
+                  value={trackId}
+                  onChange={(e) => setTrackId(e.target.value)}
+                  className="bg-white/10 border border-white/20 rounded-full px-4 py-2 text-sm font-bold outline-none focus:border-axis-blue"
+                >
+                  {TRACKS.map((t) => (
+                    <option key={t.id} value={t.id} className="bg-axis-navy">
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  disabled={entries.length === 0}
+                  className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full disabled:opacity-40 hover:scale-105 transition"
+                >
+                  🏁 Bắt đầu đua ({entries.length} xe)
+                </button>
+              </div>
+              <p className="text-white/40 text-xs">
+                {TRACKS.find((t) => t.id === trackId)?.description}
+              </p>
             </form>
           )}
           {session.status === "racing" && (
