@@ -108,6 +108,85 @@ export async function startRace(formData) {
   return { success: true };
 }
 
+async function requireAdmin(supabase) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Bạn cần đăng nhập trước." };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!profile?.is_admin) return { error: "Chỉ admin mới dùng được chức năng này." };
+
+  return { user };
+}
+
+export async function addTestEntries(formData) {
+  const supabase = await createClient();
+  const { user, error: authError } = await requireAdmin(supabase);
+  if (authError) return { error: authError };
+
+  const sessionId = Number(formData.get("sessionId"));
+  const requestedCount = Number(formData.get("count")) || 0;
+
+  const { data: session } = await supabase
+    .from("race_sessions")
+    .select("id, status")
+    .eq("id", sessionId)
+    .single();
+  if (!session || session.status !== "lobby") return { error: "Phiên đua không hợp lệ." };
+
+  const [{ data: carSlots }, { data: existingEntries }] = await Promise.all([
+    supabase.from("car_slots").select("id, slot_number"),
+    supabase.from("race_entries").select("car_slot_id").eq("session_id", sessionId),
+  ]);
+
+  const takenSlotIds = new Set((existingEntries ?? []).map((e) => e.car_slot_id));
+  const freeSlots = (carSlots ?? []).filter((c) => !takenSlotIds.has(c.id));
+  if (freeSlots.length === 0) return { error: "Đã hết xe trống." };
+
+  // shuffle so test cars don't always land on the lowest slot numbers
+  for (let i = freeSlots.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [freeSlots[i], freeSlots[j]] = [freeSlots[j], freeSlots[i]];
+  }
+
+  const count = Math.max(1, Math.min(requestedCount, freeSlots.length, 50));
+  const rows = freeSlots.slice(0, count).map((slot) => ({
+    session_id: sessionId,
+    user_id: user.id,
+    car_slot_id: slot.id,
+    nickname: `Bot ${slot.slot_number}`,
+    is_test: true,
+  }));
+
+  const { error } = await supabase.from("race_entries").insert(rows);
+  if (error) return { error: error.message };
+
+  revalidatePath("/lobby");
+  return { success: true };
+}
+
+export async function clearTestEntries(formData) {
+  const supabase = await createClient();
+  const { error: authError } = await requireAdmin(supabase);
+  if (authError) return { error: authError };
+
+  const sessionId = Number(formData.get("sessionId"));
+  const { error } = await supabase
+    .from("race_entries")
+    .delete()
+    .eq("session_id", sessionId)
+    .eq("is_test", true);
+  if (error) return { error: error.message };
+
+  revalidatePath("/lobby");
+  return { success: true };
+}
+
 export async function newSession() {
   const supabase = await createClient();
   await supabase.from("race_sessions").insert({ status: "lobby", laps: 2 });

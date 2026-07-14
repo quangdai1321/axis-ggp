@@ -104,12 +104,9 @@ create table if not exists public.race_sessions (
   id bigint generated always as identity primary key,
   status text not null default 'lobby' check (status in ('lobby', 'racing', 'finished')),
   laps smallint not null default 2,
-  track_id text not null default 'gp-circuit',
   started_at timestamptz,
   created_at timestamptz not null default now()
 );
-
-alter table public.race_sessions add column if not exists track_id text not null default 'gp-circuit';
 
 alter table public.race_sessions enable row level security;
 
@@ -144,10 +141,21 @@ create table if not exists public.race_entries (
   nickname text not null,
   finish_time numeric,
   position smallint,
+  is_test boolean not null default false,
   created_at timestamptz not null default now(),
-  unique (session_id, user_id),
   unique (session_id, car_slot_id)
 );
+
+alter table public.race_entries add column if not exists is_test boolean not null default false;
+
+-- a real player may only claim one car per session, but admins seeding
+-- test/bot entries (all inserted under their own user_id) need many —
+-- so uniqueness on (session_id, user_id) only applies to non-test rows
+alter table public.race_entries drop constraint if exists race_entries_session_id_user_id_key;
+drop index if exists race_entries_session_real_user_idx;
+create unique index race_entries_session_real_user_idx
+  on public.race_entries (session_id, user_id)
+  where not is_test;
 
 alter table public.race_entries enable row level security;
 

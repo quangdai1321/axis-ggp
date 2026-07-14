@@ -27,7 +27,7 @@ export default async function LobbyPage() {
       : Promise.resolve({ data: null }),
     supabase
       .from("race_sessions")
-      .select("id, status, laps, started_at")
+      .select("id, status, laps, started_at, track_id")
       .order("id", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -37,7 +37,7 @@ export default async function LobbyPage() {
   const { data: entries } = session
     ? await supabase
         .from("race_entries")
-        .select("id, user_id, car_slot_id, nickname, position, finish_time")
+        .select("id, user_id, car_slot_id, nickname, position, finish_time, is_test")
         .eq("session_id", session.id)
     : { data: [] };
 

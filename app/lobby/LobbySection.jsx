@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useActionState, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { claimCar, dropCar, startRace, newSession, finishSession } from "./actions";
+import {
+  claimCar,
+  dropCar,
+  startRace,
+  newSession,
+  finishSession,
+  addTestEntries,
+  clearTestEntries,
+} from "./actions";
 import { TRACKS, DEFAULT_TRACK_ID } from "@/lib/tracks";
 
 const startRaceInitialState = { error: null };
@@ -21,6 +29,10 @@ export default function LobbySection({ session: initialSession, carSlots, initia
   const [trackId, setTrackId] = useState(initialSession?.track_id ?? DEFAULT_TRACK_ID);
   const [startRaceState, startRaceAction, startRacePending] = useActionState(
     async (_prev, formData) => startRace(formData),
+    startRaceInitialState
+  );
+  const [testState, addTestAction, testPending] = useActionState(
+    async (_prev, formData) => addTestEntries(formData),
     startRaceInitialState
   );
 
@@ -66,7 +78,8 @@ export default function LobbySection({ session: initialSession, carSlots, initia
   }
 
   const entryBySlot = new Map(entries.map((e) => [e.car_slot_id, e]));
-  const myEntry = entries.find((e) => e.user_id === userId);
+  const myEntry = entries.find((e) => e.user_id === userId && !e.is_test);
+  const testCount = entries.filter((e) => e.is_test).length;
   const isLobbyOpen = session.status === "lobby";
 
   return (
@@ -92,10 +105,43 @@ export default function LobbySection({ session: initialSession, carSlots, initia
       </div>
 
       {isAdmin && (
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8 flex flex-wrap items-center gap-3">
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8 flex flex-col gap-4">
           <span className="font-extrabold text-axis-yellow text-sm uppercase tracking-wide">
             Điều khiển admin
           </span>
+
+          {session.status === "lobby" && (
+            <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-white/10">
+              <span className="text-xs text-white/50 font-bold uppercase">Thử đua (xe test)</span>
+              <form action={addTestAction} className="flex items-center gap-2">
+                <input type="hidden" name="sessionId" value={session.id} />
+                <input
+                  type="number"
+                  name="count"
+                  min={1}
+                  max={50}
+                  defaultValue={10}
+                  className="w-20 bg-white/10 border border-white/20 rounded-full px-3 py-1.5 text-sm font-bold outline-none focus:border-axis-blue"
+                />
+                <button
+                  disabled={testPending}
+                  className="bg-white/10 hover:bg-white/20 px-4 py-1.5 rounded-full text-sm font-bold transition disabled:opacity-40"
+                >
+                  {testPending ? "Đang thêm..." : "🤖 Thêm xe test"}
+                </button>
+              </form>
+              {testCount > 0 && (
+                <form action={clearTestEntries}>
+                  <input type="hidden" name="sessionId" value={session.id} />
+                  <button className="bg-white/10 hover:bg-red-500/30 px-4 py-1.5 rounded-full text-sm font-bold transition">
+                    Xoá {testCount} xe test
+                  </button>
+                </form>
+              )}
+              {testState.error && <p className="text-red-400 text-xs font-bold w-full">{testState.error}</p>}
+            </div>
+          )}
+
           {session.status === "lobby" && (
             <form action={startRaceAction} className="flex flex-col gap-2">
               <input type="hidden" name="sessionId" value={session.id} />
@@ -197,7 +243,7 @@ export default function LobbySection({ session: initialSession, carSlots, initia
               <p className="font-bold text-sm">{car.model_name}</p>
               {entry ? (
                 <p className="text-xs text-axis-yellow font-bold truncate" title={entry.nickname}>
-                  🏎️ {entry.nickname}
+                  {entry.is_test ? "🤖" : "🏎️"} {entry.nickname}
                 </p>
               ) : claimable ? (
                 <form action={claimCar} className="flex flex-col gap-1.5">
