@@ -197,8 +197,11 @@ export async function newSession() {
 export async function finishSession(formData) {
   const supabase = await createClient();
   const sessionId = Number(formData.get("sessionId"));
-  await supabase.from("race_sessions").update({ status: "finished" }).eq("id", sessionId);
+  const { error } = await supabase.from("race_sessions").update({ status: "finished" }).eq("id", sessionId);
+  if (error) return { error: error.message };
+
   revalidatePath("/lobby");
   revalidatePath("/race");
   revalidatePath("/leaderboard");
+  return { success: true };
 }

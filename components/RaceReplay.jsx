@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { getTrackById } from "../lib/tracks";
 import { createAxisLogoDataUrl } from "../lib/axisLogoCanvas";
+import { createClient } from "../lib/supabase/client";
 
 const LANE_COUNT = 10;
 const LANE_SPACING = 5.5;
@@ -50,6 +52,7 @@ function Confetti() {
 }
 
 export default function RaceReplay({ entries, laps, startedAt, status, trackId }) {
+  const router = useRouter();
   const pathRef = useRef(null);
   const carRefs = useRef([]);
   const trailRefs = useRef([]);
@@ -62,6 +65,31 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId }
   useEffect(() => {
     setLogoUrl(createAxisLogoDataUrl());
   }, []);
+
+  // the page's props are a server-side snapshot — without this, someone
+  // sitting on /race before the admin hits "start" would keep seeing the
+  // pre-race snapshot (status: lobby, started_at: null) forever, which
+  // rendered as cars frozen at the starting line
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel("race-page-sessions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "race_sessions" },
+        () => router.refresh()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "race_entries" },
+        () => router.refresh()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [router]);
 
   useEffect(() => {
     if (status === "lobby" || entries.length === 0) return;

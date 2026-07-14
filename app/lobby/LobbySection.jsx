@@ -35,6 +35,10 @@ export default function LobbySection({ session: initialSession, carSlots, initia
     async (_prev, formData) => addTestEntries(formData),
     startRaceInitialState
   );
+  const [finishState, finishAction, finishPending] = useActionState(
+    async (_prev, formData) => finishSession(formData),
+    startRaceInitialState
+  );
 
   useEffect(() => {
     if (!initialSession) return;
@@ -181,11 +185,17 @@ export default function LobbySection({ session: initialSession, carSlots, initia
               >
                 Xem đua trực tiếp
               </Link>
-              <form action={finishSession}>
+              <form action={finishAction} className="flex flex-col gap-1">
                 <input type="hidden" name="sessionId" value={session.id} />
-                <button className="bg-white/10 px-5 py-2 rounded-full font-extrabold hover:bg-white/20 transition">
-                  Chốt kết quả
+                <button
+                  disabled={finishPending}
+                  className="bg-white/10 px-5 py-2 rounded-full font-extrabold hover:bg-white/20 transition disabled:opacity-40"
+                >
+                  {finishPending ? "Đang chốt..." : "Chốt kết quả"}
                 </button>
+                {finishState.error && (
+                  <p className="text-red-400 text-xs font-bold">{finishState.error}</p>
+                )}
               </form>
             </>
           )}
