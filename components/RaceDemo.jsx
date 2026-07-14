@@ -22,6 +22,16 @@ const GADGETS = [
 
 const TRACK_RADIUS = 26;
 const BOT_COUNT = 8;
+const BOT_NAMES = [
+  "Sấm Sét",
+  "Cuồng Phong",
+  "Tia Chớp",
+  "Vua Cua",
+  "Bão Tố",
+  "Ánh Sao",
+  "Hoả Tiễn",
+  "Ma Tốc Độ",
+];
 const CAR_RADIUS = 1.3;
 const OUT_OF_BOUNDS_RADIUS = 42;
 const REWIND_SECONDS = 1;
@@ -61,6 +71,8 @@ export default function RaceDemo() {
   const mountRef = useRef(null);
   const minimapRef = useRef(null);
   const controlsRef = useRef(null);
+  const playerNameRef = useRef(null);
+  const botNameRefs = useRef([]);
   const [hud, setHud] = useState({
     speed: 0,
     maxSpeedNow: BASE_MAX_SPEED,
@@ -418,6 +430,7 @@ export default function RaceDemo() {
     runCountdown();
 
     const clock = new THREE.Clock();
+    const projectVec = new THREE.Vector3();
     let frameId;
 
     function animate() {
@@ -707,6 +720,31 @@ export default function RaceDemo() {
         audio.updateEngine(Math.abs(state.speed) / BOOST_MAX_SPEED);
       }
 
+      // floating name tags above each car
+      camera.updateMatrixWorld();
+      const mount = mountRef.current;
+      if (mount) {
+        const w = mount.clientWidth;
+        const h = mount.clientHeight;
+
+        function positionLabel(el, worldObj) {
+          if (!el) return;
+          projectVec.set(worldObj.position.x, worldObj.position.y + 2.1, worldObj.position.z);
+          projectVec.project(camera);
+          if (projectVec.z > 1) {
+            el.style.display = "none";
+            return;
+          }
+          const sx = (projectVec.x * 0.5 + 0.5) * w;
+          const sy = (-projectVec.y * 0.5 + 0.5) * h;
+          el.style.display = "block";
+          el.style.transform = `translate(-50%, -100%) translate(${sx}px, ${sy}px)`;
+        }
+
+        positionLabel(playerNameRef.current, player);
+        bots.forEach((b, i) => positionLabel(botNameRefs.current[i], b.mesh));
+      }
+
       // minimap
       const mmCanvas = minimapRef.current;
       if (mmCanvas) {
@@ -809,6 +847,25 @@ export default function RaceDemo() {
   return (
     <div className="relative w-full aspect-video rounded-2xl overflow-hidden border-4 border-axis-blue shadow-2xl select-none">
       <div ref={mountRef} className="absolute inset-0" />
+
+      {/* floating name tags */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <span
+          ref={playerNameRef}
+          className="absolute left-0 top-0 bg-red-500/90 text-white text-[10px] sm:text-xs font-extrabold px-2 py-0.5 rounded-full whitespace-nowrap shadow"
+        >
+          🚩 BẠN
+        </span>
+        {BOT_NAMES.map((name, i) => (
+          <span
+            key={name}
+            ref={(el) => (botNameRefs.current[i] = el)}
+            className="absolute left-0 top-0 bg-black/60 backdrop-blur text-white text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+          >
+            {name}
+          </span>
+        ))}
+      </div>
 
       {/* countdown overlay */}
       {hud.phase === "countdown" && hud.countdownText && (
