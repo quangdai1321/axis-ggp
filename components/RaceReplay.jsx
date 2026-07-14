@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { createAxisLogoTexture } from "../lib/three/axisLogoTexture";
 import { addTrackScenery, animateTrackScenery } from "../lib/three/trackScenery";
+import {
+  createSkyDome,
+  createGroundMaterial,
+  createTrackMaterial,
+  createCurbMaterial,
+  addCityscape,
+} from "../lib/three/environment";
 
 const TRACK_RADIUS = 26;
 const LANE_COUNT = 6;
@@ -48,7 +55,14 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     mount.appendChild(renderer.domElement);
+
+    const sky = createSkyDome(THREE);
+    scene.add(sky);
 
     scene.add(new THREE.HemisphereLight(0xffffff, 0x2a5a3a, 0.9));
     const sun = new THREE.DirectionalLight(0xffffff, 1.1);
@@ -56,21 +70,38 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
     sun.castShadow = true;
     scene.add(sun);
 
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(70, 48),
-      new THREE.MeshStandardMaterial({ color: 0x3fae5c })
-    );
+    const groundMaterial = createGroundMaterial(THREE);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(70, 48), groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
 
+    const trackMaterial = createTrackMaterial(THREE);
     const track = new THREE.Mesh(
       new THREE.RingGeometry(TRACK_RADIUS - 8, TRACK_RADIUS + 8, 64),
-      new THREE.MeshStandardMaterial({ color: 0x6b6b76 })
+      trackMaterial
     );
     track.rotation.x = -Math.PI / 2;
     track.position.y = 0.01;
     scene.add(track);
+
+    const curbMaterial = createCurbMaterial(THREE);
+    const innerCurb = new THREE.Mesh(
+      new THREE.RingGeometry(TRACK_RADIUS - 8.6, TRACK_RADIUS - 8, 64),
+      curbMaterial
+    );
+    innerCurb.rotation.x = -Math.PI / 2;
+    innerCurb.position.y = 0.02;
+    scene.add(innerCurb);
+    const outerCurb = new THREE.Mesh(
+      new THREE.RingGeometry(TRACK_RADIUS + 8, TRACK_RADIUS + 8.6, 64),
+      curbMaterial
+    );
+    outerCurb.rotation.x = -Math.PI / 2;
+    outerCurb.position.y = 0.02;
+    scene.add(outerCurb);
+
+    addCityscape(scene, THREE, TRACK_RADIUS);
 
     const logoTexture = createAxisLogoTexture(THREE);
     const logo = new THREE.Mesh(
@@ -145,6 +176,10 @@ export default function RaceReplay({ entries, laps, startedAt, status }) {
       resizeObserver.disconnect();
       renderer.dispose();
       logoTexture.dispose();
+      groundMaterial.map?.dispose();
+      trackMaterial.map?.dispose();
+      curbMaterial.map?.dispose();
+      sky.material.map?.dispose();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
         if (obj.material) {

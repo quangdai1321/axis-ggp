@@ -5,6 +5,13 @@ import * as THREE from "three";
 import { createAxisLogoTexture } from "../lib/three/axisLogoTexture";
 import { addTrackScenery, animateTrackScenery } from "../lib/three/trackScenery";
 import { createCarAudio } from "../lib/three/carAudio";
+import {
+  createSkyDome,
+  createGroundMaterial,
+  createTrackMaterial,
+  createCurbMaterial,
+  addCityscape,
+} from "../lib/three/environment";
 
 const GADGETS = [
   { name: "Rocket Shoes", color: 0xffcf3a, effect: "boost" },
@@ -92,7 +99,14 @@ export default function RaceDemo() {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.1;
     mount.appendChild(renderer.domElement);
+
+    const sky = createSkyDome(THREE);
+    scene.add(sky);
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0x2a5a3a, 0.9);
     scene.add(hemi);
@@ -103,31 +117,38 @@ export default function RaceDemo() {
     scene.add(sun);
 
     // ground
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(70, 48),
-      new THREE.MeshStandardMaterial({ color: 0x3fae5c })
-    );
+    const groundMaterial = createGroundMaterial(THREE);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(70, 48), groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     scene.add(ground);
 
     // track ring
+    const trackMaterial = createTrackMaterial(THREE);
     const track = new THREE.Mesh(
       new THREE.RingGeometry(TRACK_RADIUS - 6, TRACK_RADIUS + 6, 64),
-      new THREE.MeshStandardMaterial({ color: 0x6b6b76 })
+      trackMaterial
     );
     track.rotation.x = -Math.PI / 2;
     track.position.y = 0.01;
     track.receiveShadow = true;
     scene.add(track);
 
-    const laneMarks = new THREE.Mesh(
-      new THREE.RingGeometry(TRACK_RADIUS - 0.3, TRACK_RADIUS + 0.3, 64),
-      new THREE.MeshBasicMaterial({ color: 0xffffff })
+    const curbMaterial = createCurbMaterial(THREE);
+    const innerCurb = new THREE.Mesh(
+      new THREE.RingGeometry(TRACK_RADIUS - 6.6, TRACK_RADIUS - 6, 64),
+      curbMaterial
     );
-    laneMarks.rotation.x = -Math.PI / 2;
-    laneMarks.position.y = 0.02;
-    scene.add(laneMarks);
+    innerCurb.rotation.x = -Math.PI / 2;
+    innerCurb.position.y = 0.02;
+    scene.add(innerCurb);
+    const outerCurb = new THREE.Mesh(
+      new THREE.RingGeometry(TRACK_RADIUS + 6, TRACK_RADIUS + 6.6, 64),
+      curbMaterial
+    );
+    outerCurb.rotation.x = -Math.PI / 2;
+    outerCurb.position.y = 0.02;
+    scene.add(outerCurb);
 
     // AXIS ROBOTICS emblem in the middle of the ring
     const logoTexture = createAxisLogoTexture(THREE);
@@ -139,22 +160,8 @@ export default function RaceDemo() {
     logo.position.y = 0.015;
     scene.add(logo);
 
-    // scenery: colorful buildings around the ring, Nobita Town vibe
-    const buildingColors = [0xff6fa1, 0xffcf3a, 0x1e9bf0, 0x53e07a, 0xff9a3c];
-    for (let i = 0; i < 20; i++) {
-      const angle = (i / 20) * Math.PI * 2;
-      const r = 40 + Math.random() * 20;
-      const h = 4 + Math.random() * 8;
-      const box = new THREE.Mesh(
-        new THREE.BoxGeometry(4, h, 4),
-        new THREE.MeshStandardMaterial({
-          color: buildingColors[i % buildingColors.length],
-        })
-      );
-      box.position.set(Math.cos(angle) * r, h / 2, Math.sin(angle) * r);
-      box.castShadow = true;
-      scene.add(box);
-    }
+    // scenery: colorful cityscape around the ring, Nobita Town vibe
+    addCityscape(scene, THREE, TRACK_RADIUS);
 
     const scenery = addTrackScenery(scene, THREE, TRACK_RADIUS);
 
@@ -778,6 +785,10 @@ export default function RaceDemo() {
       resizeObserver.disconnect();
       renderer.dispose();
       logoTexture.dispose();
+      groundMaterial.map?.dispose();
+      trackMaterial.map?.dispose();
+      curbMaterial.map?.dispose();
+      sky.material.map?.dispose();
       audio?.stop();
       scene.traverse((obj) => {
         if (obj.geometry) obj.geometry.dispose();
