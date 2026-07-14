@@ -788,7 +788,7 @@ export default function RaceDemo() {
       setHud((h) => {
         const speedRounded = Math.round(Math.abs(state.speed) * 10);
         const lapTime = racing ? Math.max(0, t - state.raceStart) : h.lapTime;
-        if (speedRounded === h.speed && Math.abs(lapTime - h.lapTime) < 0.05 && h.lap === state.lap) {
+        if (speedRounded === h.speed && Math.abs(lapTime - h.lapTime) < 0.15 && h.lap === state.lap) {
           return h;
         }
         return {

@@ -93,7 +93,9 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "race_entries" },
+        sessionId
+          ? { event: "*", schema: "public", table: "race_entries", filter: `session_id=eq.${sessionId}` }
+          : { event: "*", schema: "public", table: "race_entries" },
         () => router.refresh()
       )
       .subscribe();
@@ -101,7 +103,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [router]);
+  }, [router, sessionId]);
 
   useEffect(() => {
     if (status === "lobby" || entries.length === 0) return;
@@ -111,8 +113,10 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     const totalLength = pathEl.getTotalLength();
     const maxFinish = Math.max(...entries.map((e) => e.finish_time ?? 999));
     const startedAtMs = startedAt ? new Date(startedAt).getTime() : null;
+    let lastStandingsPush = 0;
+    let prevGlowIndices = [];
 
-    function updateFrame() {
+    function updateFrame(now) {
       const elapsed = startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0;
 
       const live = entries.map((entry, i) => {
@@ -140,6 +144,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
         }
 
         return {
+          i,
           id: entry.id,
           nickname: entry.nickname,
           progress,
@@ -149,13 +154,38 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
       });
 
       live.sort((a, b) => b.progress - a.progress);
-      setStandings(live);
+
+      // only the top 3 get the (expensive-to-paint) glow filter, and it's
+      // only touched on cars whose rank actually changed since last frame
+      const glowIndices = live.slice(0, 3).map((c) => c.i);
+      if (
+        glowIndices.length !== prevGlowIndices.length ||
+        glowIndices.some((idx, k) => idx !== prevGlowIndices[k])
+      ) {
+        prevGlowIndices.forEach((idx) => {
+          const el = carRefs.current[idx];
+          if (el) el.style.filter = "";
+        });
+        glowIndices.forEach((idx) => {
+          const el = carRefs.current[idx];
+          if (el) el.style.filter = `drop-shadow(0 0 5px ${live.find((c) => c.i === idx)?.colorHex})`;
+        });
+        prevGlowIndices = glowIndices;
+      }
+
+      // the leaderboard list only needs to feel "live", not tick every
+      // frame — pushing 50-row React state at 60fps was the main jank
+      // source on lower-end devices
+      if (!lastStandingsPush || now - lastStandingsPush > 200) {
+        lastStandingsPush = now;
+        setStandings(live);
+      }
       if (elapsed >= maxFinish) setRaceOver(true);
     }
 
-    updateFrame();
-    let frameId = requestAnimationFrame(function loop() {
-      updateFrame();
+    updateFrame(0);
+    let frameId = requestAnimationFrame(function loop(now) {
+      updateFrame(now);
       frameId = requestAnimationFrame(loop);
     });
     return () => cancelAnimationFrame(frameId);
@@ -241,10 +271,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
                 strokeDasharray={`${TRAIL_LEN} ${100 - TRAIL_LEN}`}
                 opacity="0.5"
               />
-              <g
-                ref={(el) => (carRefs.current[i] = el)}
-                style={{ filter: `drop-shadow(0 0 4px ${entry.color_hex || "#fff"})` }}
-              >
+              <g ref={(el) => (carRefs.current[i] = el)}>
                 <polygon points={CAR_POLY} fill={entry.color_hex || "#ffffff"} />
               </g>
             </g>
