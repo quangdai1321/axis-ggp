@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -27,6 +28,7 @@ const STATUS_LABEL = {
 };
 
 export default function LobbySection({ session: initialSession, carSlots, initialEntries, userId, isAdmin }) {
+  const router = useRouter();
   const [session, setSession] = useState(initialSession);
   const [entries, setEntries] = useState(initialEntries);
   const [live, setLive] = useState(false);
@@ -51,6 +53,10 @@ export default function LobbySection({ session: initialSession, carSlots, initia
     async (_prev, formData) => clearTestEntries(formData),
     startRaceInitialState
   );
+
+  useEffect(() => {
+    if (startRaceState.success) router.push("/race");
+  }, [startRaceState.success, router]);
 
   useEffect(() => {
     if (!initialSession) return;

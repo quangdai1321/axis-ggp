@@ -16,6 +16,13 @@ export default async function RacePage() {
   }
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("is_admin").eq("id", user.id).maybeSingle()
+    : { data: null };
+
   const { data: session } = await supabase
     .from("race_sessions")
     .select("id, status, laps, started_at, track_id")
@@ -47,11 +54,13 @@ export default async function RacePage() {
       </p>
       <h1 className="font-display text-3xl font-extrabold mb-8">Trận đua trực tiếp</h1>
       <RaceReplay
+        sessionId={session?.id ?? null}
         entries={flatEntries}
         laps={session?.laps ?? 2}
         startedAt={session?.started_at ?? null}
         status={session?.status ?? "lobby"}
         trackId={session?.track_id}
+        isAdmin={Boolean(profile?.is_admin)}
       />
     </main>
   );

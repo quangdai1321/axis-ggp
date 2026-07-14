@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { getTrackById } from "../lib/tracks";
 import { createAxisLogoDataUrl } from "../lib/axisLogoCanvas";
 import { createClient } from "../lib/supabase/client";
+import { finishSession } from "../app/lobby/actions";
 
 const LANE_COUNT = 10;
 const LANE_SPACING = 5.5;
@@ -51,11 +52,12 @@ function Confetti() {
   );
 }
 
-export default function RaceReplay({ entries, laps, startedAt, status, trackId }) {
+export default function RaceReplay({ entries, laps, startedAt, status, trackId, sessionId, isAdmin }) {
   const router = useRouter();
   const pathRef = useRef(null);
   const carRefs = useRef([]);
   const trailRefs = useRef([]);
+  const autoFinishedRef = useRef(false);
   const [standings, setStandings] = useState([]);
   const [raceOver, setRaceOver] = useState(false);
   const [logoUrl, setLogoUrl] = useState(null);
@@ -65,6 +67,16 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId }
   useEffect(() => {
     setLogoUrl(createAxisLogoDataUrl());
   }, []);
+
+  // once the last car crosses the line, the admin's own browser closes
+  // the session automatically — no need to walk back to the Lobby
+  useEffect(() => {
+    if (!raceOver || !isAdmin || !sessionId || status !== "racing" || autoFinishedRef.current) return;
+    autoFinishedRef.current = true;
+    const formData = new FormData();
+    formData.set("sessionId", String(sessionId));
+    finishSession(formData);
+  }, [raceOver, isAdmin, sessionId, status]);
 
   // the page's props are a server-side snapshot — without this, someone
   // sitting on /race before the admin hits "start" would keep seeing the
