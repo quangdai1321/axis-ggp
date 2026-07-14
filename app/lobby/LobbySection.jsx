@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { claimCar, dropCar, startRace, newSession, finishSession } from "./actions";
 import { TRACKS, DEFAULT_TRACK_ID } from "@/lib/tracks";
+
+const startRaceInitialState = { error: null };
 
 const STATUS_LABEL = {
   lobby: "Đang mở — chọn xe đi!",
@@ -17,6 +19,10 @@ export default function LobbySection({ session: initialSession, carSlots, initia
   const [entries, setEntries] = useState(initialEntries);
   const [live, setLive] = useState(false);
   const [trackId, setTrackId] = useState(initialSession?.track_id ?? DEFAULT_TRACK_ID);
+  const [startRaceState, startRaceAction, startRacePending] = useActionState(
+    async (_prev, formData) => startRace(formData),
+    startRaceInitialState
+  );
 
   useEffect(() => {
     if (!initialSession) return;
@@ -91,7 +97,7 @@ export default function LobbySection({ session: initialSession, carSlots, initia
             Điều khiển admin
           </span>
           {session.status === "lobby" && (
-            <form action={startRace} className="flex flex-col gap-2">
+            <form action={startRaceAction} className="flex flex-col gap-2">
               <input type="hidden" name="sessionId" value={session.id} />
               <div className="flex flex-wrap items-center gap-3">
                 <select
@@ -107,15 +113,18 @@ export default function LobbySection({ session: initialSession, carSlots, initia
                   ))}
                 </select>
                 <button
-                  disabled={entries.length === 0}
+                  disabled={entries.length === 0 || startRacePending}
                   className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full disabled:opacity-40 hover:scale-105 transition"
                 >
-                  🏁 Bắt đầu đua ({entries.length} xe)
+                  {startRacePending ? "Đang bắt đầu..." : `🏁 Bắt đầu đua (${entries.length} xe)`}
                 </button>
               </div>
               <p className="text-white/40 text-xs">
                 {TRACKS.find((t) => t.id === trackId)?.description}
               </p>
+              {startRaceState.error && (
+                <p className="text-red-400 text-sm font-bold">{startRaceState.error}</p>
+              )}
             </form>
           )}
           {session.status === "racing" && (

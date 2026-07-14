@@ -93,14 +93,19 @@ export async function startRace(formData) {
   const requestedTrackId = formData.get("trackId")?.toString();
   const trackId = TRACKS.some((t) => t.id === requestedTrackId) ? requestedTrackId : DEFAULT_TRACK_ID;
 
-  await supabase
+  const { error: sessionError } = await supabase
     .from("race_sessions")
     .update({ status: "racing", started_at: new Date().toISOString(), track_id: trackId })
     .eq("id", sessionId);
 
+  if (sessionError) {
+    return { error: `Không thể bắt đầu đua: ${sessionError.message}` };
+  }
+
   revalidatePath("/lobby");
   revalidatePath("/race");
   revalidatePath("/leaderboard");
+  return { success: true };
 }
 
 export async function newSession() {
