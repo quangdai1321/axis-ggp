@@ -189,9 +189,12 @@ export async function clearTestEntries(formData) {
 
 export async function newSession() {
   const supabase = await createClient();
-  await supabase.from("race_sessions").insert({ status: "lobby", laps: 2 });
+  const { error } = await supabase.from("race_sessions").insert({ status: "lobby", laps: 2 });
+  if (error) return { error: error.message };
+
   revalidatePath("/lobby");
   revalidatePath("/race");
+  return { success: true };
 }
 
 export async function finishSession(formData) {

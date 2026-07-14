@@ -16,6 +16,10 @@ import { TRACKS, DEFAULT_TRACK_ID } from "@/lib/tracks";
 
 const startRaceInitialState = { error: null };
 
+function Spinner({ className = "border-white/30 border-t-white" }) {
+  return <span className={`inline-block w-3.5 h-3.5 border-2 rounded-full animate-spin ${className}`} />;
+}
+
 const STATUS_LABEL = {
   lobby: "Đang mở — chọn xe đi!",
   racing: "Đang đua!",
@@ -37,6 +41,14 @@ export default function LobbySection({ session: initialSession, carSlots, initia
   );
   const [finishState, finishAction, finishPending] = useActionState(
     async (_prev, formData) => finishSession(formData),
+    startRaceInitialState
+  );
+  const [newSessionState, newSessionAction, newSessionPending] = useActionState(
+    async () => newSession(),
+    startRaceInitialState
+  );
+  const [clearTestState, clearTestAction, clearTestPending] = useActionState(
+    async (_prev, formData) => clearTestEntries(formData),
     startRaceInitialState
   );
 
@@ -129,20 +141,29 @@ export default function LobbySection({ session: initialSession, carSlots, initia
                 />
                 <button
                   disabled={testPending}
-                  className="bg-white/10 hover:bg-white/20 px-4 py-1.5 rounded-full text-sm font-bold transition disabled:opacity-40"
+                  className="bg-white/10 hover:bg-white/20 px-4 py-1.5 rounded-full text-sm font-bold transition disabled:opacity-40 flex items-center gap-2"
                 >
+                  {testPending && <Spinner />}
                   {testPending ? "Đang thêm..." : "🤖 Thêm xe test"}
                 </button>
               </form>
               {testCount > 0 && (
-                <form action={clearTestEntries}>
+                <form action={clearTestAction}>
                   <input type="hidden" name="sessionId" value={session.id} />
-                  <button className="bg-white/10 hover:bg-red-500/30 px-4 py-1.5 rounded-full text-sm font-bold transition">
-                    Xoá {testCount} xe test
+                  <button
+                    disabled={clearTestPending}
+                    className="bg-white/10 hover:bg-red-500/30 px-4 py-1.5 rounded-full text-sm font-bold transition disabled:opacity-40 flex items-center gap-2"
+                  >
+                    {clearTestPending && <Spinner />}
+                    {clearTestPending ? "Đang xoá..." : `Xoá ${testCount} xe test`}
                   </button>
                 </form>
               )}
-              {testState.error && <p className="text-red-400 text-xs font-bold w-full">{testState.error}</p>}
+              {(testState.error || clearTestState.error) && (
+                <p className="text-red-400 text-xs font-bold w-full">
+                  {testState.error || clearTestState.error}
+                </p>
+              )}
             </div>
           )}
 
@@ -164,8 +185,9 @@ export default function LobbySection({ session: initialSession, carSlots, initia
                 </select>
                 <button
                   disabled={entries.length === 0 || startRacePending}
-                  className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full disabled:opacity-40 hover:scale-105 transition"
+                  className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full disabled:opacity-40 hover:scale-105 transition flex items-center gap-2"
                 >
+                  {startRacePending && <Spinner className="border-axis-navy/30 border-t-axis-navy" />}
                   {startRacePending ? "Đang bắt đầu..." : `🏁 Bắt đầu đua (${entries.length} xe)`}
                 </button>
               </div>
@@ -189,8 +211,9 @@ export default function LobbySection({ session: initialSession, carSlots, initia
                 <input type="hidden" name="sessionId" value={session.id} />
                 <button
                   disabled={finishPending}
-                  className="bg-white/10 px-5 py-2 rounded-full font-extrabold hover:bg-white/20 transition disabled:opacity-40"
+                  className="bg-white/10 px-5 py-2 rounded-full font-extrabold hover:bg-white/20 transition disabled:opacity-40 flex items-center gap-2"
                 >
+                  {finishPending && <Spinner />}
                   {finishPending ? "Đang chốt..." : "Chốt kết quả"}
                 </button>
                 {finishState.error && (
@@ -200,10 +223,17 @@ export default function LobbySection({ session: initialSession, carSlots, initia
             </>
           )}
           {session.status === "finished" && (
-            <form action={newSession}>
-              <button className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full hover:scale-105 transition">
-                🔄 Ván mới
+            <form action={newSessionAction} className="flex flex-col gap-1">
+              <button
+                disabled={newSessionPending}
+                className="bg-axis-yellow text-axis-navy font-extrabold px-5 py-2 rounded-full hover:scale-105 transition disabled:opacity-40 flex items-center gap-2"
+              >
+                {newSessionPending && <Spinner className="border-axis-navy/30 border-t-axis-navy" />}
+                {newSessionPending ? "Đang tạo ván mới..." : "🔄 Ván mới"}
               </button>
+              {newSessionState.error && (
+                <p className="text-red-400 text-xs font-bold">{newSessionState.error}</p>
+              )}
             </form>
           )}
         </div>
