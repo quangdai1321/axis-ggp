@@ -11,6 +11,11 @@ Trang giới thiệu (landing page) cho concept game **AXIS: Gadget Grand Prix**
      may rủi bảo bối) rồi phát lại như một trận đua 3D, xếp hạng cập nhật dần khi
      xe cán đích.
    - **Bảng xếp hạng** lưu kết quả từng ván + tổng số lần về nhất của mỗi người.
+4. **Quiz thần tốc** (`/quiz`) — trả lời câu hỏi trắc nghiệm kiểu
+   [quiz.com](https://quiz.com): chọn chủ đề, mỗi câu 4 đáp án màu + đếm ngược
+   20 giây, trả lời càng nhanh điểm càng cao (500–1000 điểm/câu), giữ chuỗi đúng
+   liên tiếp để nhận thưởng thêm. Chơi được ngay không cần đăng nhập; đăng nhập
+   thì điểm được lưu vào bảng **Top cao thủ Quiz** (Supabase).
 
 Đây **không phải** bản dựng của game thật (game 3D multiplayer 50 người tự lái
 cùng lúc cần Unreal/Unity + dedicated game server + đồng bộ vật lý realtime,
@@ -33,8 +38,8 @@ WebSocket đồng bộ vật lý phức tạp, vẫn nằm gọn trong free tier
    bạn, đặt mật khẩu DB bất kỳ). Gói Free đủ dùng cho project này.
 2. Vào **SQL Editor** → **New query** → dán toàn bộ nội dung file
    [`supabase/schema.sql`](supabase/schema.sql) → **Run**. Việc này tạo bảng
-   `profiles`, `car_slots` (seed sẵn 50 xe), `race_sessions`, `race_entries` và
-   các policy Row Level Security.
+   `profiles`, `car_slots` (seed sẵn 50 xe), `race_sessions`, `race_entries`,
+   `quiz_scores` và các policy Row Level Security.
 3. Vào **Project Settings → API**, copy **Project URL** và **anon public key**.
 4. Tạo file `.env.local` ở thư mục gốc (copy từ `.env.example`):
 
@@ -132,6 +137,10 @@ app/
     page.js               # Trang phát lại trận đua
   leaderboard/
     page.js               # Bảng xếp hạng ván gần nhất + bảng vinh danh
+  quiz/
+    page.js               # Trang quiz + bảng Top cao thủ Quiz
+    QuizGame.jsx          # Gameplay quiz kiểu quiz.com (client)
+    actions.js            # Server Action: submitQuizScore
   auth/confirm/route.js   # Xử lý link xác nhận email của Supabase
 components/
   RaceDemo.jsx            # Mini-demo lái xe thủ công (Three.js)
@@ -139,6 +148,7 @@ components/
   NavBar.jsx              # Thanh điều hướng + trạng thái đăng nhập
 lib/supabase/
   client.js, server.js, middleware.js, config.js
+lib/quizData.js             # Ngân hàng câu hỏi quiz (3 chủ đề)
 middleware.js              # Refresh session Supabase trên mọi request
 supabase/schema.sql         # Schema Postgres + seed 50 xe + RLS policies
 GAME_DESIGN.md              # Tài liệu thiết kế game gốc

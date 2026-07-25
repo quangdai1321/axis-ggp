@@ -192,7 +192,34 @@ create policy "Only admins can write race results"
   using (exists (select 1 from public.profiles where id = auth.uid() and is_admin));
 
 -- =========================================================
--- 5. Bật Realtime cho Sảnh chờ (ai chọn/bỏ xe thấy ngay không cần refresh)
+-- 5. Điểm Quiz (chế độ trả lời câu hỏi kiểu quiz.com ở trang /quiz)
+-- =========================================================
+create table if not exists public.quiz_scores (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  topic_id text not null,
+  score integer not null check (score >= 0),
+  correct_count smallint not null check (correct_count >= 0),
+  question_count smallint not null check (question_count >= 1),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists quiz_scores_score_idx on public.quiz_scores (score desc);
+
+alter table public.quiz_scores enable row level security;
+
+drop policy if exists "Quiz scores are viewable by everyone" on public.quiz_scores;
+create policy "Quiz scores are viewable by everyone"
+  on public.quiz_scores for select
+  using (true);
+
+drop policy if exists "Users can insert their own quiz scores" on public.quiz_scores;
+create policy "Users can insert their own quiz scores"
+  on public.quiz_scores for insert
+  with check (auth.uid() = user_id);
+
+-- =========================================================
+-- 6. Bật Realtime cho Sảnh chờ (ai chọn/bỏ xe thấy ngay không cần refresh)
 -- =========================================================
 do $$
 begin

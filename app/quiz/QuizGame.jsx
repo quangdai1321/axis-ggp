@@ -1,0 +1,452 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { QUIZ_TOPICS, QUESTION_SECONDS, buildQuizRun } from "@/lib/quizData";
+import { submitQuizScore } from "./actions";
+
+// 4 ô đáp án kiểu quiz.com: mỗi ô một màu + một ký hiệu cố định
+const TILES = [
+  { shape: "▲", bg: "#e74c3c", fg: "#ffffff" },
+  { shape: "◆", bg: "#1e9bf0", fg: "#ffffff" },
+  { shape: "●", bg: "#ffcf3a", fg: "#0a1a2f" },
+  { shape: "■", bg: "#53e07a", fg: "#0a1a2f" },
+];
+
+const REVEAL_MS = 2600;
+const CONFETTI_COLORS = ["#ffcf3a", "#ff6fa1", "#1e9bf0", "#53e07a", "#ff9a3c"];
+
+export default function QuizGame({ username, supabaseReady, topScores }) {
+  const router = useRouter();
+
+  const [phase, setPhase] = useState("menu"); // menu | countdown | question | reveal | results
+  const [topic, setTopic] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [qIndex, setQIndex] = useState(0);
+  const [countdown, setCountdown] = useState(3);
+  const [timeLeft, setTimeLeft] = useState(QUESTION_SECONDS);
+  const [chosen, setChosen] = useState(null);
+  const [score, setScore] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [bestStreak, setBestStreak] = useState(0);
+  const [correctCount, setCorrectCount] = useState(0);
+  const [lastGain, setLastGain] = useState(0);
+  const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
+
+  const timerRef = useRef(null);
+  const advanceRef = useRef(null);
+  const audioRef = useRef(null);
+  const savedRef = useRef(false);
+
+  const clearTimers = useCallback(() => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (advanceRef.current) clearTimeout(advanceRef.current);
+    timerRef.current = null;
+    advanceRef.current = null;
+  }, []);
+
+  useEffect(() => clearTimers, [clearTimers]);
+
+  // ---- Âm thanh: bíp nhẹ bằng WebAudio, không cần file ----
+  const tone = useCallback((freq, duration, delay = 0, type = "sine", volume = 0.12) => {
+    try {
+      if (!audioRef.current) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        audioRef.current = new Ctx();
+      }
+      const ctx = audioRef.current;
+      if (ctx.state === "suspended") ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      const t = ctx.currentTime + delay;
+      gain.gain.setValueAtTime(volume, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + duration);
+    } catch {
+      // trình duyệt chặn audio thì bỏ qua, game vẫn chạy bình thường
+    }
+  }, []);
+
+  const playCorrect = useCallback(() => {
+    tone(660, 0.12);
+    tone(880, 0.2, 0.12);
+  }, [tone]);
+  const playWrong = useCallback(() => tone(170, 0.35, 0, "square", 0.08), [tone]);
+  const playTick = useCallback(() => tone(520, 0.06, 0, "sine", 0.06), [tone]);
+
+  // ---- Luồng game ----
+  const startTopic = useCallback(
+    (t) => {
+      clearTimers();
+      setTopic(t);
+      setQuestions(buildQuizRun(t.id));
+      setQIndex(0);
+      setScore(0);
+      setStreak(0);
+      setBestStreak(0);
+      setCorrectCount(0);
+      setSaveState("idle");
+      savedRef.current = false;
+      setCountdown(3);
+      setPhase("countdown");
+      playTick();
+    },
+    [clearTimers, playTick]
+  );
+
+  useEffect(() => {
+    if (phase !== "countdown") return;
+    const id = setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          clearInterval(id);
+          setPhase("question");
+          return 0;
+        }
+        playTick();
+        return c - 1;
+      });
+    }, 800);
+    return () => clearInterval(id);
+  }, [phase, playTick]);
+
+  useEffect(() => {
+    if (phase !== "question") return;
+    setChosen(null);
+    setTimeLeft(QUESTION_SECONDS);
+    const startedAt = Date.now();
+    timerRef.current = setInterval(() => {
+      const left = QUESTION_SECONDS - (Date.now() - startedAt) / 1000;
+      if (left <= 0) {
+        setTimeLeft(0);
+        answer(null, 0);
+      } else {
+        setTimeLeft(left);
+      }
+    }, 100);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, qIndex]);
+
+  function answer(tileIndex, leftOverride) {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+
+    const left = leftOverride ?? timeLeft;
+    const q = questions[qIndex];
+    const isCorrect = tileIndex !== null && tileIndex === q.correct;
+
+    let gain = 0;
+    if (isCorrect) {
+      const newStreak = streak + 1;
+      // Điểm kiểu quiz.com: trả lời càng nhanh càng cao (500–1000),
+      // cộng thưởng chuỗi đúng liên tiếp (tối đa +300)
+      gain = Math.round(500 + 500 * (left / QUESTION_SECONDS)) + 50 * Math.min(newStreak - 1, 6);
+      setScore((s) => s + gain);
+      setStreak(newStreak);
+      setBestStreak((b) => Math.max(b, newStreak));
+      setCorrectCount((c) => c + 1);
+      playCorrect();
+    } else {
+      setStreak(0);
+      playWrong();
+    }
+
+    setChosen(tileIndex);
+    setLastGain(gain);
+    setPhase("reveal");
+
+    advanceRef.current = setTimeout(() => {
+      if (qIndex + 1 < questions.length) {
+        setQIndex((i) => i + 1);
+        setPhase("question");
+      } else {
+        setPhase("results");
+      }
+    }, REVEAL_MS);
+  }
+
+  // Lưu điểm 1 lần khi vào màn kết quả (nếu đã đăng nhập)
+  useEffect(() => {
+    if (phase !== "results" || savedRef.current) return;
+    if (!supabaseReady || !username) return;
+    savedRef.current = true;
+    setSaveState("saving");
+    submitQuizScore({
+      topicId: topic.id,
+      score,
+      correctCount,
+      questionCount: questions.length,
+    }).then((res) => {
+      if (res?.error) {
+        setSaveState("error");
+      } else {
+        setSaveState("saved");
+        router.refresh();
+      }
+    });
+  }, [phase, supabaseReady, username, topic, score, correctCount, questions.length, router]);
+
+  // ================= RENDER =================
+
+  if (phase === "menu") {
+    return (
+      <div>
+        <div className="grid sm:grid-cols-3 gap-4 mb-12">
+          {QUIZ_TOPICS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => startTopic(t)}
+              className="text-left bg-white/5 border border-white/10 rounded-2xl p-5 hover:border-axis-yellow hover:-translate-y-1 transition group"
+            >
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-3"
+                style={{ backgroundColor: `${t.color}33` }}
+              >
+                {t.emoji}
+              </div>
+              <h3 className="font-display font-extrabold text-lg mb-1 group-hover:text-axis-yellow transition">
+                {t.name}
+              </h3>
+              <p className="text-white/60 text-sm mb-3">{t.description}</p>
+              <span className="text-xs font-extrabold text-white/40">
+                {t.questions.length} câu hỏi · {QUESTION_SECONDS}s/câu
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <QuizLeaderboard topScores={topScores} supabaseReady={supabaseReady} />
+      </div>
+    );
+  }
+
+  if (phase === "countdown") {
+    return (
+      <div className="flex flex-col items-center justify-center py-24">
+        <p className="text-white/60 font-bold mb-6">
+          {topic.emoji} {topic.name}
+        </p>
+        <div
+          key={countdown}
+          className="quiz-pop font-display font-extrabold text-8xl text-axis-yellow"
+        >
+          {countdown === 0 ? "GO!" : countdown}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "question" || phase === "reveal") {
+    const q = questions[qIndex];
+    const pct = (timeLeft / QUESTION_SECONDS) * 100;
+    const timerColor = pct > 50 ? "#53e07a" : pct > 25 ? "#ffcf3a" : "#e74c3c";
+    const revealing = phase === "reveal";
+
+    return (
+      <div>
+        {/* Thanh trạng thái trên cùng */}
+        <div className="flex items-center justify-between mb-3 text-sm font-extrabold">
+          <span className="text-white/60">
+            Câu {qIndex + 1}/{questions.length}
+          </span>
+          <span className="flex items-center gap-3">
+            {streak >= 2 && (
+              <span className="text-axis-yellow quiz-pop" key={streak}>
+                🔥 chuỗi {streak}
+              </span>
+            )}
+            <span className="bg-white/10 rounded-full px-4 py-1">{score.toLocaleString("vi")} điểm</span>
+          </span>
+        </div>
+
+        {/* Thanh đếm giờ */}
+        <div className="h-2.5 bg-white/10 rounded-full overflow-hidden mb-6">
+          <div
+            className="h-full rounded-full transition-[width] duration-100 ease-linear"
+            style={{ width: `${revealing ? 0 : pct}%`, backgroundColor: timerColor }}
+          />
+        </div>
+
+        {/* Câu hỏi */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-10 text-center mb-6 relative">
+          <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">{q.text}</h2>
+          {!revealing && (
+            <span
+              className="absolute top-3 right-4 font-display font-extrabold text-lg"
+              style={{ color: timerColor }}
+            >
+              {Math.ceil(timeLeft)}s
+            </span>
+          )}
+        </div>
+
+        {/* Banner kết quả câu vừa rồi */}
+        {revealing && (
+          <div className="text-center mb-4 quiz-pop">
+            {chosen === q.correct ? (
+              <span className="font-display font-extrabold text-2xl text-axis-yellow">
+                ✓ Chính xác! +{lastGain.toLocaleString("vi")} điểm
+              </span>
+            ) : chosen === null ? (
+              <span className="font-display font-extrabold text-2xl text-red-400">⏰ Hết giờ!</span>
+            ) : (
+              <span className="font-display font-extrabold text-2xl text-red-400">✗ Sai mất rồi!</span>
+            )}
+          </div>
+        )}
+
+        {/* 4 ô đáp án */}
+        <div className="grid sm:grid-cols-2 gap-3">
+          {q.answers.map((ans, i) => {
+            const tile = TILES[i];
+            const isCorrect = i === q.correct;
+            const isChosen = i === chosen;
+            let extra = "";
+            if (revealing) {
+              if (isCorrect) extra = "ring-4 ring-white scale-[1.02]";
+              else if (isChosen) extra = "opacity-60 quiz-shake";
+              else extra = "opacity-30";
+            } else {
+              extra = "hover:scale-[1.02] active:scale-95";
+            }
+            return (
+              <button
+                key={i}
+                disabled={revealing}
+                onClick={() => answer(i)}
+                className={`flex items-center gap-4 rounded-2xl px-5 py-5 sm:py-7 font-extrabold text-left text-base sm:text-lg transition ${extra}`}
+                style={{ backgroundColor: tile.bg, color: tile.fg }}
+              >
+                <span className="text-2xl shrink-0">{tile.shape}</span>
+                <span>{ans}</span>
+                {revealing && isCorrect && <span className="ml-auto text-2xl">✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // phase === "results"
+  const accuracy = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+  return (
+    <div className="relative text-center py-8">
+      {/* Confetti */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-0 overflow-visible" aria-hidden>
+        {Array.from({ length: 24 }).map((_, i) => (
+          <span
+            key={i}
+            className="confetti-piece absolute w-2.5 h-2.5 rounded-sm"
+            style={{
+              left: `${(i * 41) % 100}%`,
+              backgroundColor: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+              animationDelay: `${(i % 8) * 0.18}s`,
+            }}
+          />
+        ))}
+      </div>
+
+      <p className="text-white/60 font-bold mb-2">
+        {topic.emoji} {topic.name}
+      </p>
+      <h2 className="font-display font-extrabold text-3xl mb-6">
+        {accuracy >= 80 ? "🏆 Xuất sắc!" : accuracy >= 50 ? "🎉 Làm tốt lắm!" : "💪 Cố lên lần sau!"}
+      </h2>
+
+      <div className="inline-block bg-white/5 border border-white/10 rounded-3xl px-10 py-8 mb-6">
+        <p className="font-display font-extrabold text-5xl text-axis-yellow mb-2">
+          {score.toLocaleString("vi")}
+        </p>
+        <p className="text-white/60 font-bold text-sm">điểm</p>
+      </div>
+
+      <div className="flex items-center justify-center gap-6 text-sm font-bold text-white/70 mb-8">
+        <span>
+          ✓ Đúng {correctCount}/{questions.length} ({accuracy}%)
+        </span>
+        <span>🔥 Chuỗi tốt nhất: {bestStreak}</span>
+      </div>
+
+      <div className="mb-10 text-sm font-bold">
+        {!supabaseReady ? (
+          <span className="text-white/40">Chưa cấu hình Supabase — điểm không được lưu.</span>
+        ) : !username ? (
+          <span className="text-white/60">
+            <a href="/login" className="text-axis-yellow underline">
+              Đăng nhập
+            </a>{" "}
+            để lưu điểm lên bảng xếp hạng.
+          </span>
+        ) : saveState === "saving" ? (
+          <span className="text-white/60">Đang lưu điểm...</span>
+        ) : saveState === "saved" ? (
+          <span className="text-axis-yellow">✓ Đã lưu điểm cho {username}</span>
+        ) : saveState === "error" ? (
+          <span className="text-red-400">Không lưu được điểm, thử lại sau nhé.</span>
+        ) : null}
+      </div>
+
+      <div className="flex items-center justify-center gap-3 mb-12">
+        <button
+          onClick={() => startTopic(topic)}
+          className="bg-axis-yellow text-axis-navy font-extrabold px-6 py-2.5 rounded-full hover:scale-105 transition"
+        >
+          Chơi lại
+        </button>
+        <button
+          onClick={() => {
+            clearTimers();
+            setPhase("menu");
+          }}
+          className="bg-white/10 font-extrabold px-6 py-2.5 rounded-full hover:bg-white/20 transition"
+        >
+          Chủ đề khác
+        </button>
+      </div>
+
+      <QuizLeaderboard topScores={topScores} supabaseReady={supabaseReady} />
+    </div>
+  );
+}
+
+function QuizLeaderboard({ topScores, supabaseReady }) {
+  if (!supabaseReady) return null;
+  return (
+    <section className="text-left">
+      <h2 className="font-display font-extrabold text-lg mb-4">🏅 Top cao thủ Quiz</h2>
+      {topScores && topScores.length > 0 ? (
+        <ol className="space-y-2">
+          {topScores.map((row, i) => (
+            <li
+              key={`${row.username}-${i}`}
+              className="flex items-center justify-between bg-white/5 border border-white/10 rounded-xl px-4 py-3"
+            >
+              <span className="flex items-center gap-3">
+                <span className="font-display font-extrabold text-axis-yellow w-8">#{i + 1}</span>
+                <span className="font-bold">{row.username}</span>
+                <span className="text-white/50 text-xs hidden sm:inline">
+                  {row.topicName} · đúng {row.correct_count}/{row.question_count}
+                </span>
+              </span>
+              <span className="text-axis-yellow font-extrabold">
+                {row.score.toLocaleString("vi")}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="text-white/60 text-sm">Chưa có ai chơi — hãy là người đầu tiên!</p>
+      )}
+    </section>
+  );
+}

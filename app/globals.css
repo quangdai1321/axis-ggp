@@ -47,3 +47,36 @@ body {
 .confetti-piece {
   animation: confetti-fall 2.2s ease-in forwards;
 }
+
+@keyframes quiz-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.quiz-pop {
+  animation: quiz-pop 0.35s ease-out both;
+}
+
+@keyframes quiz-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-6px);
+  }
+  75% {
+    transform: translateX(6px);
+  }
+}
+.quiz-shake {
+  animation: quiz-shake 0.3s ease-in-out 2;
+}

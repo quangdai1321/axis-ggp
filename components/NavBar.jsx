@@ -39,6 +39,9 @@ export default async function NavBar() {
           >
             Làm task Axis ↗
           </a>
+          <Link href="/quiz" className="text-white/80 hover:text-white transition">
+            Quiz
+          </Link>
           <Link href="/lobby" className="text-white/80 hover:text-white transition">
             Sảnh chờ
           </Link>
