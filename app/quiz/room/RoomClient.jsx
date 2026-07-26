@@ -57,8 +57,9 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
 
   const [selectedTopic, setSelectedTopic] = useState(topics[0]?.id ?? "");
 
-  // đồng hồ đếm ngược cục bộ: đặt lại mỗi khi vào câu mới
-  const [indexStartLocal, setIndexStartLocal] = useState(0);
+  // đồng hồ đếm ngược cục bộ, gắn với ĐÚNG chỉ số câu đang mở để tránh
+  // tính nhầm "đã hết giờ" ở render đầu tiên của mỗi câu (gây tự nộp trống)
+  const [timer, setTimer] = useState({ index: -1, startedAt: 0 });
   const [nowTs, setNowTs] = useState(() => Date.now());
   const [myAnswer, setMyAnswer] = useState(null); // { answerIndex, gained, isCorrect, correctIndex }
   const submittedRef = useRef(false);
@@ -129,7 +130,7 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   // ---- Khi sang câu mới: đặt lại đồng hồ + trạng thái trả lời ----
   useEffect(() => {
     if (room?.status === "playing") {
-      setIndexStartLocal(Date.now());
+      setTimer({ index: room.current_index, startedAt: Date.now() });
       setNowTs(Date.now());
       setMyAnswer(null);
       submittedRef.current = false;
@@ -152,9 +153,11 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
     return () => clearInterval(id);
   }, [room?.id, room?.status, fetchPlayers]);
 
-  const elapsed = room?.status === "playing" ? (nowTs - indexStartLocal) / 1000 : 0;
+  // chỉ tính giờ khi đồng hồ đã được khởi tạo cho ĐÚNG câu hiện tại
+  const timerReady = room?.status === "playing" && timer.index === room.current_index;
+  const elapsed = timerReady ? (nowTs - timer.startedAt) / 1000 : 0;
   const timeLeft = Math.max(0, QUESTION_SECONDS - elapsed);
-  const revealNow = room?.status === "playing" && elapsed >= QUESTION_SECONDS;
+  const revealNow = timerReady && elapsed >= QUESTION_SECONDS;
   const currentQuestion =
     room?.status === "playing" && Array.isArray(room.questions)
       ? room.questions[room.current_index]
