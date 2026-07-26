@@ -14,10 +14,14 @@ import {
   addCityscape,
 } from "../lib/three/environment";
 
-const SCALE = 0.06; // đổi toạ độ SVG (1400x800) sang mét trong cảnh 3D
-const TRACK_WIDTH = 8.5;
+const SCALE = 0.075; // đổi toạ độ SVG (1400x800) sang mét trong cảnh 3D
+const TRACK_WIDTH = 10;
 const LANE_COUNT = 6;
-const LANE_SPACING = 1.05;
+const LANE_SPACING = 1.2;
+// camera bám theo xe dẫn đầu (kiểu quay phim)
+const CAM_BACK = 11; // lùi sau xe
+const CAM_HEIGHT = 6; // cao hơn xe
+const CAM_LOOK_AHEAD = 5; // nhìn về phía trước xe
 const CONFETTI_COLORS = ["#ff6fa1", "#ffcf3a", "#1e9bf0", "#53e07a", "#ff9a3c"];
 
 // Lấy mẫu điểm dọc theo path SVG rồi đổi sang toạ độ 3D (mặt phẳng y=0)
@@ -111,7 +115,8 @@ function buildEdge(curve, offset, width, segments, material, y) {
   return new THREE.Mesh(g, material);
 }
 
-// Xe kart 3D đơn giản, hướng đầu xe theo trục +z
+// Xe kart 3D đơn giản, hướng đầu xe theo trục +z. Trả về group + mảng bánh xe
+// để quay bánh trong lúc chạy.
 function makeKart(color) {
   const g = new THREE.Group();
   const body = new THREE.Mesh(
@@ -135,20 +140,23 @@ function makeKart(color) {
   nose.position.set(0, 0.28, 1.0);
   g.add(nose);
 
-  const wheelGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.24, 10);
+  // trục bánh nằm dọc x (bake sẵn vào geometry) -> quay bánh bằng rotation.x
+  const wheelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.24, 12);
+  wheelGeo.rotateZ(Math.PI / 2);
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.8 });
+  const wheels = [];
   [
-    [0.62, 0.28, 0.62],
-    [-0.62, 0.28, 0.62],
-    [0.62, 0.28, -0.62],
-    [-0.62, 0.28, -0.62],
+    [0.62, 0.3, 0.62],
+    [-0.62, 0.3, 0.62],
+    [0.62, 0.3, -0.62],
+    [-0.62, 0.3, -0.62],
   ].forEach(([x, y, z]) => {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
-    w.rotation.z = Math.PI / 2;
     w.position.set(x, y, z);
     g.add(w);
+    wheels.push(w);
   });
-  return g;
+  return { group: g, wheels };
 }
 
 function Confetti() {
@@ -256,7 +264,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
     const cars = entries.map((e) => {
       const kart = makeKart(new THREE.Color(e.color_hex || "#ffffff"));
-      scene.add(kart);
+      scene.add(kart.group);
       return kart;
     });
 
@@ -266,14 +274,18 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     const P = new THREE.Vector3();
     const T = new THREE.Vector3();
     const S = new THREE.Vector3();
-    let camAngle = Math.PI * 0.25;
+    const F = new THREE.Vector3();
+    const desiredPos = new THREE.Vector3();
+    const desiredLook = new THREE.Vector3();
+    const smoothLook = new THREE.Vector3();
+    let camReady = false;
     let lastPush = 0;
+    let lastT = performance.now();
     let frameId;
 
-    const camDist = radius * 1.9 + 12;
-    const camH = radius * 1.05 + 10;
-
     function frame(now) {
+      const dt = Math.min(0.05, (now - lastT) / 1000);
+      lastT = now;
       const elapsed = startedAtMs ? (Date.now() - startedAtMs) / 1000 : 0;
 
       const live = entries.map((entry, i) => {
@@ -286,8 +298,12 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
         const lane = i % LANE_COUNT;
         const laneOffset = (lane - (LANE_COUNT - 1) / 2) * LANE_SPACING;
         const kart = cars[i];
-        kart.position.set(P.x + S.x * laneOffset, 0, P.z + S.z * laneOffset);
-        kart.rotation.y = Math.atan2(T.x, T.z);
+        kart.group.position.set(P.x + S.x * laneOffset, 0, P.z + S.z * laneOffset);
+        kart.group.rotation.y = Math.atan2(T.x, T.z);
+        // quay bánh khi chưa về đích
+        if (progress < 1) {
+          for (let w = 0; w < kart.wheels.length; w++) kart.wheels[w].rotation.x -= dt * 14;
+        }
         return {
           i,
           id: entry.id,
@@ -300,9 +316,30 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
       live.sort((a, b) => b.progress - a.progress);
 
-      camAngle += 0.0013;
-      camera.position.set(Math.cos(camAngle) * camDist, camH, Math.sin(camAngle) * camDist);
-      camera.lookAt(0, 1.5, 0);
+      // camera bám theo xe dẫn đầu, làm mượt bằng lerp
+      const leader = cars[live[0].i].group;
+      const h = leader.rotation.y;
+      F.set(Math.sin(h), 0, Math.cos(h)); // hướng đầu xe dẫn đầu
+      // lệch nhẹ sang bên (vector bên của xe = (-Fz, Fx)) cho góc 3/4 đẹp hơn
+      desiredPos.set(
+        leader.position.x - F.x * CAM_BACK + -F.z * 2.5,
+        CAM_HEIGHT,
+        leader.position.z - F.z * CAM_BACK + F.x * 2.5
+      );
+      desiredLook.set(
+        leader.position.x + F.x * CAM_LOOK_AHEAD,
+        1.2,
+        leader.position.z + F.z * CAM_LOOK_AHEAD
+      );
+      if (!camReady) {
+        camera.position.copy(desiredPos);
+        smoothLook.copy(desiredLook);
+        camReady = true;
+      } else {
+        camera.position.lerp(desiredPos, 0.045);
+        smoothLook.lerp(desiredLook, 0.07);
+      }
+      camera.lookAt(smoothLook);
 
       if (!lastPush || now - lastPush > 200) {
         lastPush = now;
