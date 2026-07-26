@@ -14,8 +14,9 @@ const EMOJIS = ["📝", "🎯", "🧠", "🎮", "🎵", "⚽", "🌟", "🍔", "
 const COLORS = ["#1e9bf0", "#ff6fa1", "#53e07a", "#ff9a3c", "#9b59b6", "#ffcf3a"];
 const MAX_QUESTIONS = 20;
 
+// multi=false: chọn đúng 1 đáp án đúng. multi=true: chọn nhiều đáp án đúng.
 function emptyQuestion() {
-  return { text: "", answers: ["", "", "", ""], correct: 0 };
+  return { text: "", answers: ["", "", "", ""], multi: false, correctSet: [0] };
 }
 
 export default function QuizCreator({ onSave, onCancel }) {
@@ -34,8 +35,26 @@ export default function QuizCreator({ onSave, onCancel }) {
       )
     );
   }
-  function setCorrect(qi, ai) {
-    setQuestions((qs) => qs.map((q, i) => (i === qi ? { ...q, correct: ai } : q)));
+  function setMulti(qi, multi) {
+    setQuestions((qs) =>
+      qs.map((q, i) => {
+        if (i !== qi) return q;
+        // đổi sang chọn-1 thì chỉ giữ 1 đáp án đúng đầu tiên
+        const correctSet = multi ? q.correctSet : q.correctSet.slice(0, 1);
+        return { ...q, multi, correctSet: correctSet.length ? correctSet : [0] };
+      })
+    );
+  }
+  function toggleCorrect(qi, ai) {
+    setQuestions((qs) =>
+      qs.map((q, i) => {
+        if (i !== qi) return q;
+        if (!q.multi) return { ...q, correctSet: [ai] };
+        const has = q.correctSet.includes(ai);
+        const correctSet = has ? q.correctSet.filter((x) => x !== ai) : [...q.correctSet, ai];
+        return { ...q, correctSet };
+      })
+    );
   }
   function addQuestion() {
     setQuestions((qs) => (qs.length >= MAX_QUESTIONS ? qs : [...qs, emptyQuestion()]));
@@ -57,12 +76,31 @@ export default function QuizCreator({ onSave, onCancel }) {
       const answers = q.answers.map((a) => a.trim());
       const filledIdx = answers.map((a, idx) => (a ? idx : -1)).filter((idx) => idx >= 0);
       if (filledIdx.length < 2) return setError(`Câu ${i + 1}: cần ít nhất 2 đáp án.`);
-      if (!answers[q.correct]) return setError(`Câu ${i + 1}: đáp án đúng đang để trống.`);
 
-      // chỉ giữ đáp án có nội dung, tính lại index đáp án đúng
+      const corrects = q.correctSet.filter((idx) => idx >= 0);
+      if (corrects.some((idx) => !answers[idx])) {
+        return setError(`Câu ${i + 1}: có đáp án đúng đang để trống.`);
+      }
+      if (q.multi) {
+        if (corrects.length < 1) return setError(`Câu ${i + 1}: chọn ít nhất 1 đáp án đúng.`);
+        if (corrects.length >= filledIdx.length)
+          return setError(`Câu ${i + 1}: phải chừa ít nhất 1 đáp án sai.`);
+      } else if (corrects.length !== 1) {
+        return setError(`Câu ${i + 1}: chọn đúng 1 đáp án đúng.`);
+      }
+
       const keptAnswers = filledIdx.map((idx) => answers[idx]);
-      const newCorrect = filledIdx.indexOf(q.correct);
-      cleaned.push({ text, answers: keptAnswers, correct: newCorrect });
+      const remap = (idx) => filledIdx.indexOf(idx);
+      if (q.multi) {
+        cleaned.push({
+          text,
+          answers: keptAnswers,
+          multi: true,
+          correct: corrects.map(remap).sort((a, b) => a - b),
+        });
+      } else {
+        cleaned.push({ text, answers: keptAnswers, correct: remap(corrects[0]) });
+      }
     }
 
     onSave({
@@ -80,10 +118,7 @@ export default function QuizCreator({ onSave, onCancel }) {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="font-display font-extrabold text-2xl">✏️ Tạo bộ quiz của bạn</h2>
-        <button
-          onClick={onCancel}
-          className="text-white/60 hover:text-white text-sm font-bold"
-        >
+        <button onClick={onCancel} className="text-white/60 hover:text-white text-sm font-bold">
           ← Quay lại
         </button>
       </div>
@@ -138,13 +173,40 @@ export default function QuizCreator({ onSave, onCancel }) {
               className="w-full bg-white/10 border border-white/15 rounded-xl px-4 py-2.5 mb-3 outline-none focus:border-axis-yellow"
             />
 
+            {/* Chọn loại câu hỏi */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-white/50 font-bold">Loại:</span>
+              <div className="inline-flex bg-white/5 rounded-full p-0.5 border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setMulti(qi, false)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition ${
+                    !q.multi ? "bg-axis-yellow text-axis-navy" : "text-white/60 hover:text-white"
+                  }`}
+                >
+                  1 đáp án đúng
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMulti(qi, true)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold transition ${
+                    q.multi ? "bg-axis-yellow text-axis-navy" : "text-white/60 hover:text-white"
+                  }`}
+                >
+                  Nhiều đáp án đúng
+                </button>
+              </div>
+            </div>
+
             <p className="text-xs text-white/50 mb-2 font-bold">
-              Nhập đáp án và bấm vòng tròn bên trái để chọn đáp án ĐÚNG (cần ≥ 2 đáp án):
+              {q.multi
+                ? "Tick tất cả ô ứng với đáp án ĐÚNG (cần ≥ 2 đáp án, chọn ≥ 1 đúng và chừa ≥ 1 sai):"
+                : "Bấm vòng tròn bên trái để chọn 1 đáp án ĐÚNG (cần ≥ 2 đáp án):"}
             </p>
             <div className="grid sm:grid-cols-2 gap-2">
               {q.answers.map((ans, ai) => {
                 const tile = TILES[ai];
-                const isCorrect = q.correct === ai;
+                const isCorrect = q.correctSet.includes(ai);
                 return (
                   <div
                     key={ai}
@@ -154,18 +216,20 @@ export default function QuizCreator({ onSave, onCancel }) {
                   >
                     <button
                       type="button"
-                      onClick={() => setCorrect(qi, ai)}
+                      onClick={() => toggleCorrect(qi, ai)}
                       title="Chọn làm đáp án đúng"
-                      className={`w-5 h-5 rounded-full shrink-0 border-2 flex items-center justify-center ${
-                        isCorrect ? "border-axis-yellow bg-axis-yellow" : "border-white/40"
-                      }`}
+                      className={`w-5 h-5 shrink-0 border-2 flex items-center justify-center ${
+                        q.multi ? "rounded-md" : "rounded-full"
+                      } ${isCorrect ? "border-axis-yellow bg-axis-yellow" : "border-white/40"}`}
                     >
-                      {isCorrect && <span className="w-2 h-2 rounded-full bg-axis-navy" />}
+                      {isCorrect &&
+                        (q.multi ? (
+                          <span className="text-[11px] leading-none font-black text-axis-navy">✓</span>
+                        ) : (
+                          <span className="w-2 h-2 rounded-full bg-axis-navy" />
+                        ))}
                     </button>
-                    <span
-                      className="text-sm shrink-0"
-                      style={{ color: tile.bg }}
-                    >
+                    <span className="text-sm shrink-0" style={{ color: tile.bg }}>
                       {tile.shape}
                     </span>
                     <input
@@ -192,9 +256,7 @@ export default function QuizCreator({ onSave, onCancel }) {
         </button>
       )}
 
-      {error && (
-        <p className="mt-4 text-red-400 font-bold text-sm text-center">{error}</p>
-      )}
+      {error && <p className="mt-4 text-red-400 font-bold text-sm text-center">{error}</p>}
 
       <div className="flex items-center justify-center gap-3 mt-6">
         <button

@@ -29,7 +29,9 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
   const [qIndex, setQIndex] = useState(0);
   const [countdown, setCountdown] = useState(3);
   const [timeLeft, setTimeLeft] = useState(QUESTION_SECONDS);
-  const [chosen, setChosen] = useState(null);
+  const [chosen, setChosen] = useState(null); // single: số/null · multi: mảng chỉ số
+  const [selected, setSelected] = useState([]); // lựa chọn đang gõ cho câu nhiều đáp án
+  const [lastCorrect, setLastCorrect] = useState(false);
   const [score, setScore] = useState(0);
   const [streak, setStreak] = useState(0);
   const [bestStreak, setBestStreak] = useState(0);
@@ -41,6 +43,10 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
   const advanceRef = useRef(null);
   const audioRef = useRef(null);
   const savedRef = useRef(false);
+  const selectedRef = useRef([]);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
 
   const clearTimers = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -135,13 +141,16 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
   useEffect(() => {
     if (phase !== "question") return;
     setChosen(null);
+    setSelected([]);
+    selectedRef.current = [];
     setTimeLeft(QUESTION_SECONDS);
     const startedAt = Date.now();
     timerRef.current = setInterval(() => {
       const left = QUESTION_SECONDS - (Date.now() - startedAt) / 1000;
       if (left <= 0) {
         setTimeLeft(0);
-        answer(null, 0);
+        const q = questions[qIndex];
+        answer(q?.multi ? selectedRef.current : null, 0);
       } else {
         setTimeLeft(left);
       }
@@ -153,13 +162,26 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, qIndex]);
 
-  function answer(tileIndex, leftOverride) {
+  function answer(choice, leftOverride) {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = null;
 
     const left = leftOverride ?? timeLeft;
     const q = questions[qIndex];
-    const isCorrect = tileIndex !== null && tileIndex === q.correct;
+
+    let isCorrect;
+    let chosenValue;
+    if (q.multi) {
+      // câu nhiều đáp án: đúng khi chọn CHÍNH XÁC tập đáp án đúng (không thiếu, không thừa)
+      const picked = [...(Array.isArray(choice) ? choice : [])].sort((a, b) => a - b);
+      const correct = [...q.correct].sort((a, b) => a - b);
+      isCorrect =
+        picked.length === correct.length && picked.every((v, idx) => v === correct[idx]);
+      chosenValue = picked;
+    } else {
+      isCorrect = choice !== null && choice === q.correct;
+      chosenValue = choice;
+    }
 
     let gain = 0;
     if (isCorrect) {
@@ -177,7 +199,8 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
       playWrong();
     }
 
-    setChosen(tileIndex);
+    setChosen(chosenValue);
+    setLastCorrect(isCorrect);
     setLastGain(gain);
     setPhase("reveal");
 
@@ -189,6 +212,10 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
         setPhase("results");
       }
     }, REVEAL_MS);
+  }
+
+  function toggleSelect(i) {
+    setSelected((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]));
   }
 
   // Lưu điểm 1 lần khi vào màn kết quả (nếu đã đăng nhập)
@@ -341,6 +368,10 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
     const pct = (timeLeft / QUESTION_SECONDS) * 100;
     const timerColor = pct > 50 ? "#53e07a" : pct > 25 ? "#ffcf3a" : "#e74c3c";
     const revealing = phase === "reveal";
+    const isMulti = !!q.multi;
+    const nothingChosen = isMulti
+      ? !Array.isArray(chosen) || chosen.length === 0
+      : chosen === null;
 
     return (
       <div>
@@ -368,8 +399,14 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
         </div>
 
         {/* Câu hỏi */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-10 text-center mb-6 relative">
+        <div
+          key={`q-${qIndex}`}
+          className="quiz-fade-in bg-white/5 border border-white/10 rounded-2xl px-6 py-8 text-center mb-6 relative"
+        >
           <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">{q.text}</h2>
+          {isMulti && (
+            <p className="text-white/50 text-xs font-bold mt-2">Chọn tất cả đáp án đúng</p>
+          )}
           {!revealing && (
             <span
               className="absolute top-3 right-4 font-display font-extrabold text-lg"
@@ -383,47 +420,66 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
         {/* Banner kết quả câu vừa rồi */}
         {revealing && (
           <div className="text-center mb-4 quiz-pop">
-            {chosen === q.correct ? (
+            {lastCorrect ? (
               <span className="font-display font-extrabold text-2xl text-axis-yellow">
                 ✓ Chính xác! +{lastGain.toLocaleString("vi")} điểm
               </span>
-            ) : chosen === null ? (
+            ) : nothingChosen ? (
               <span className="font-display font-extrabold text-2xl text-red-400">⏰ Hết giờ!</span>
             ) : (
-              <span className="font-display font-extrabold text-2xl text-red-400">✗ Sai mất rồi!</span>
+              <span className="font-display font-extrabold text-2xl text-red-400">✗ Chưa đúng!</span>
             )}
           </div>
         )}
 
-        {/* 4 ô đáp án */}
-        <div className="grid sm:grid-cols-2 gap-3">
+        {/* Ô đáp án */}
+        <div key={`a-${qIndex}`} className="quiz-fade-in grid sm:grid-cols-2 gap-3">
           {q.answers.map((ans, i) => {
             const tile = TILES[i];
-            const isCorrect = i === q.correct;
-            const isChosen = i === chosen;
+            const isCorrect = isMulti ? q.correct.includes(i) : i === q.correct;
+            const isChosen = isMulti
+              ? Array.isArray(chosen) && chosen.includes(i)
+              : i === chosen;
+            const isPicked = isMulti && selected.includes(i);
             let extra = "";
             if (revealing) {
               if (isCorrect) extra = "ring-4 ring-white scale-[1.02]";
               else if (isChosen) extra = "opacity-60 quiz-shake";
               else extra = "opacity-30";
+            } else if (isPicked) {
+              extra = "ring-4 ring-white scale-[1.02]";
             } else {
               extra = "hover:scale-[1.02] active:scale-95";
             }
             return (
               <button
-                key={i}
+                key={`${qIndex}-${i}`}
                 disabled={revealing}
-                onClick={() => answer(i)}
-                className={`flex items-center gap-4 rounded-2xl px-5 py-5 sm:py-7 font-extrabold text-left text-base sm:text-lg transition ${extra}`}
+                onClick={() => (isMulti ? toggleSelect(i) : answer(i))}
+                className={`flex items-center gap-4 rounded-2xl px-5 py-5 sm:py-6 font-extrabold text-left text-base sm:text-lg transition ${extra}`}
                 style={{ backgroundColor: tile.bg, color: tile.fg }}
               >
                 <span className="text-2xl shrink-0">{tile.shape}</span>
                 <span>{ans}</span>
                 {revealing && isCorrect && <span className="ml-auto text-2xl">✓</span>}
+                {!revealing && isPicked && <span className="ml-auto text-xl">✓</span>}
               </button>
             );
           })}
         </div>
+
+        {/* Nút xác nhận cho câu nhiều đáp án */}
+        {isMulti && !revealing && (
+          <div className="text-center mt-5">
+            <button
+              onClick={() => answer(selected)}
+              disabled={selected.length === 0}
+              className="bg-axis-yellow text-axis-navy font-extrabold px-8 py-2.5 rounded-full hover:scale-105 transition disabled:opacity-40"
+            >
+              Xác nhận ({selected.length})
+            </button>
+          </div>
+        )}
       </div>
     );
   }

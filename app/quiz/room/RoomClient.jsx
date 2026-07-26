@@ -141,7 +141,7 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   // ---- Tick đồng hồ khi đang chơi ----
   useEffect(() => {
     if (room?.status !== "playing") return;
-    const id = setInterval(() => setNowTs(Date.now()), 200);
+    const id = setInterval(() => setNowTs(Date.now()), 100);
     return () => clearInterval(id);
   }, [room?.status, room?.current_index]);
 
@@ -491,12 +491,15 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
 
         <div className="h-2.5 bg-white/10 rounded-full overflow-hidden mb-6">
           <div
-            className="h-full rounded-full transition-[width] duration-200 ease-linear"
+            className="h-full rounded-full transition-[width] duration-100 ease-linear"
             style={{ width: `${pct}%`, backgroundColor: timerColor }}
           />
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-2xl px-6 py-10 text-center mb-6 relative">
+        <div
+          key={`rq-${room.current_index}`}
+          className="quiz-fade-in bg-white/5 border border-white/10 rounded-2xl px-6 py-10 text-center mb-6 relative"
+        >
           <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">
             {currentQuestion.text}
           </h2>
@@ -526,7 +529,7 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
         )}
 
         {/* Ô đáp án */}
-        <div className="grid sm:grid-cols-2 gap-3 mb-6">
+        <div key={`ra-${room.current_index}`} className="quiz-fade-in grid sm:grid-cols-2 gap-3 mb-6">
           {currentQuestion.answers.map((ans, i) => {
             const tile = TILES[i];
             const chosen = myAnswer?.answerIndex === i;

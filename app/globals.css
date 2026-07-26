@@ -80,3 +80,17 @@ body {
 .quiz-shake {
   animation: quiz-shake 0.3s ease-in-out 2;
 }
+
+@keyframes quiz-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.quiz-fade-in {
+  animation: quiz-fade-in 0.35s ease-out both;
+}
