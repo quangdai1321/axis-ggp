@@ -219,6 +219,220 @@ create policy "Users can insert their own quiz scores"
   with check (auth.uid() = user_id);
 
 -- =========================================================
+-- 5b. Phòng Quiz trực tiếp nhiều người (kiểu Kahoot)
+--   - 1 chủ phòng (đã đăng nhập) tạo phòng -> có mã tham gia.
+--   - Tối đa ~100 người nhập mã + tên để vào (KHÔNG cần đăng nhập).
+--   - Chủ phòng bấm "Bắt đầu", mọi người cùng trả lời 1 câu tại 1 thời điểm,
+--     tính điểm theo tốc độ (dựa trên đồng hồ server nên công bằng).
+-- =========================================================
+
+-- Phòng: `questions` là snapshot ĐÃ xáo trộn, CHỈ gồm text + answers (không lộ
+-- đáp án đúng). Đáp án đúng để riêng ở bảng quiz_room_keys mà client không đọc được.
+create table if not exists public.quiz_rooms (
+  id bigint generated always as identity primary key,
+  code text not null unique,
+  host_id uuid not null references auth.users (id) on delete cascade,
+  topic_id text not null,
+  topic_name text not null,
+  questions jsonb not null,
+  status text not null default 'lobby' check (status in ('lobby', 'playing', 'finished')),
+  current_index smallint not null default -1,
+  question_started_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists quiz_rooms_code_idx on public.quiz_rooms (code);
+
+alter table public.quiz_rooms enable row level security;
+
+drop policy if exists "Quiz rooms are viewable by everyone" on public.quiz_rooms;
+create policy "Quiz rooms are viewable by everyone"
+  on public.quiz_rooms for select using (true);
+
+drop policy if exists "Host can create room" on public.quiz_rooms;
+create policy "Host can create room"
+  on public.quiz_rooms for insert with check (auth.uid() = host_id);
+
+drop policy if exists "Host can update own room" on public.quiz_rooms;
+create policy "Host can update own room"
+  on public.quiz_rooms for update using (auth.uid() = host_id);
+
+drop policy if exists "Host can delete own room" on public.quiz_rooms;
+create policy "Host can delete own room"
+  on public.quiz_rooms for delete using (auth.uid() = host_id);
+
+-- Bảng đáp án đúng — KHÔNG có policy SELECT nên anon/authenticated không đọc được;
+-- chỉ các hàm SECURITY DEFINER (chạy dưới quyền owner) mới truy cập để chấm điểm.
+create table if not exists public.quiz_room_keys (
+  room_id bigint primary key references public.quiz_rooms (id) on delete cascade,
+  answer_key jsonb not null
+);
+
+alter table public.quiz_room_keys enable row level security;
+
+drop policy if exists "Host can insert key" on public.quiz_room_keys;
+create policy "Host can insert key"
+  on public.quiz_room_keys for insert
+  with check (exists (select 1 from public.quiz_rooms r where r.id = room_id and r.host_id = auth.uid()));
+
+-- Người chơi trong phòng
+create table if not exists public.quiz_room_players (
+  id bigint generated always as identity primary key,
+  room_id bigint not null references public.quiz_rooms (id) on delete cascade,
+  nickname text not null,
+  token text not null,
+  score integer not null default 0,
+  correct_count smallint not null default 0,
+  answered_index smallint not null default -1,
+  joined_at timestamptz not null default now(),
+  unique (room_id, nickname)
+);
+
+alter table public.quiz_room_players enable row level security;
+
+drop policy if exists "Room players are viewable by everyone" on public.quiz_room_players;
+create policy "Room players are viewable by everyone"
+  on public.quiz_room_players for select using (true);
+
+-- Câu trả lời từng câu (chống trả lời 2 lần bằng unique)
+create table if not exists public.quiz_room_answers (
+  id bigint generated always as identity primary key,
+  room_id bigint not null references public.quiz_rooms (id) on delete cascade,
+  player_id bigint not null references public.quiz_room_players (id) on delete cascade,
+  question_index smallint not null,
+  answer_index smallint,
+  is_correct boolean not null default false,
+  gained integer not null default 0,
+  created_at timestamptz not null default now(),
+  unique (room_id, player_id, question_index)
+);
+
+alter table public.quiz_room_answers enable row level security;
+
+drop policy if exists "Room answers are viewable by everyone" on public.quiz_room_answers;
+create policy "Room answers are viewable by everyone"
+  on public.quiz_room_answers for select using (true);
+
+-- Hàm tham gia phòng (người chơi vô danh gọi được): tạo người chơi + token bí mật
+create or replace function public.join_quiz_room(p_code text, p_nickname text)
+returns table (room_id bigint, player_id bigint, token text)
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_room public.quiz_rooms;
+  v_nick text;
+  v_token text;
+begin
+  v_nick := btrim(p_nickname);
+  if v_nick = '' or char_length(v_nick) > 24 then
+    raise exception 'Tên phải từ 1–24 ký tự.';
+  end if;
+
+  select * into v_room from public.quiz_rooms where code = upper(btrim(p_code));
+  if not found then
+    raise exception 'Không tìm thấy phòng với mã này.';
+  end if;
+  if v_room.status <> 'lobby' then
+    raise exception 'Phòng đã bắt đầu hoặc kết thúc, không thể tham gia.';
+  end if;
+
+  v_token := replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '');
+
+  begin
+    insert into public.quiz_room_players (room_id, nickname, token)
+    values (v_room.id, v_nick, v_token)
+    returning id into player_id;
+  exception when unique_violation then
+    raise exception 'Tên này đã có người dùng trong phòng.';
+  end;
+
+  room_id := v_room.id;
+  token := v_token;
+  return next;
+end;
+$$;
+
+grant execute on function public.join_quiz_room(text, text) to anon, authenticated;
+
+-- Hàm nộp câu trả lời (chấm điểm phía server, đọc đáp án đúng ở bảng ẩn)
+create or replace function public.submit_quiz_room_answer(
+  p_code text,
+  p_player_id bigint,
+  p_token text,
+  p_question_index int,
+  p_answer_index int
+)
+returns table (is_correct boolean, gained int, correct_index int)
+language plpgsql
+security definer set search_path = public
+as $$
+declare
+  v_room public.quiz_rooms;
+  v_key jsonb;
+  v_correct int;
+  v_elapsed numeric;
+  v_frac numeric;
+  v_gained int := 0;
+  v_correctb boolean := false;
+  v_qsec constant int := 20;
+  v_inserted boolean := false;
+begin
+  select * into v_room from public.quiz_rooms where code = upper(btrim(p_code));
+  if not found then raise exception 'Phòng không tồn tại.'; end if;
+
+  perform 1 from public.quiz_room_players
+    where id = p_player_id and room_id = v_room.id and token = p_token;
+  if not found then raise exception 'Người chơi không hợp lệ.'; end if;
+
+  if v_room.status <> 'playing' or v_room.current_index <> p_question_index then
+    raise exception 'Câu hỏi không còn mở.';
+  end if;
+
+  select answer_key into v_key from public.quiz_room_keys where room_id = v_room.id;
+  v_correct := (v_key ->> p_question_index)::int;
+  v_elapsed := extract(epoch from (now() - v_room.question_started_at));
+
+  if p_answer_index is not null and p_answer_index = v_correct then
+    v_correctb := true;
+    if v_elapsed <= v_qsec then
+      v_frac := (v_qsec - v_elapsed) / v_qsec;
+      if v_frac < 0 then v_frac := 0; end if;
+      v_gained := round(500 + 500 * v_frac)::int;
+    else
+      v_gained := 0;
+    end if;
+  end if;
+
+  insert into public.quiz_room_answers
+    (room_id, player_id, question_index, answer_index, is_correct, gained)
+  values (v_room.id, p_player_id, p_question_index, p_answer_index, v_correctb, v_gained)
+  on conflict (room_id, player_id, question_index) do nothing;
+  v_inserted := found;
+
+  if v_inserted then
+    update public.quiz_room_players
+      set score = score + v_gained,
+          correct_count = correct_count + (case when v_correctb then 1 else 0 end),
+          answered_index = p_question_index
+      where id = p_player_id;
+  else
+    -- đã trả lời câu này rồi: trả lại kết quả cũ, không cộng điểm lần 2
+    select a.is_correct, a.gained into v_correctb, v_gained
+      from public.quiz_room_answers a
+      where a.room_id = v_room.id and a.player_id = p_player_id and a.question_index = p_question_index;
+  end if;
+
+  is_correct := v_correctb;
+  gained := v_gained;
+  correct_index := v_correct;
+  return next;
+end;
+$$;
+
+grant execute on function public.submit_quiz_room_answer(text, bigint, text, int, int) to anon, authenticated;
+
+-- =========================================================
 -- 6. Bật Realtime cho Sảnh chờ (ai chọn/bỏ xe thấy ngay không cần refresh)
 -- =========================================================
 do $$
@@ -235,6 +449,13 @@ begin
     where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'race_sessions'
   ) then
     alter publication supabase_realtime add table public.race_sessions;
+  end if;
+
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'quiz_rooms'
+  ) then
+    alter publication supabase_realtime add table public.quiz_rooms;
   end if;
 end $$;
 

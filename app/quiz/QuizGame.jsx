@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { QUIZ_TOPICS, QUESTION_SECONDS, shuffleQuestions } from "@/lib/quizData";
 import { loadCustomQuizzes, saveCustomQuiz, deleteCustomQuiz } from "@/lib/customQuiz";
@@ -220,6 +221,21 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
   if (phase === "menu") {
     return (
       <div>
+        <Link
+          href="/quiz/room"
+          className="flex items-center justify-between gap-4 bg-gradient-to-r from-axis-blue/30 to-axis-pink/30 border border-white/15 rounded-2xl p-5 mb-8 hover:border-axis-yellow transition group"
+        >
+          <div>
+            <h2 className="font-display font-extrabold text-xl mb-1 group-hover:text-axis-yellow transition">
+              👥 Chơi nhiều người (tới 100 người)
+            </h2>
+            <p className="text-white/60 text-sm">
+              Tạo phòng, chia mã, chủ phòng bấm bắt đầu — mọi người cùng thi một lúc.
+            </p>
+          </div>
+          <span className="font-display font-extrabold text-2xl text-axis-yellow shrink-0">→</span>
+        </Link>
+
         <h2 className="font-display font-extrabold text-lg mb-4">Chủ đề có sẵn</h2>
         <div className="grid sm:grid-cols-3 gap-4 mb-6">
           {QUIZ_TOPICS.map((t) => (

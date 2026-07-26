@@ -16,6 +16,15 @@ Trang giới thiệu (landing page) cho concept game **AXIS: Gadget Grand Prix**
    20 giây, trả lời càng nhanh điểm càng cao (500–1000 điểm/câu), giữ chuỗi đúng
    liên tiếp để nhận thưởng thêm. Chơi được ngay không cần đăng nhập; đăng nhập
    thì điểm được lưu vào bảng **Top cao thủ Quiz** (Supabase).
+   - **Tự tạo bộ câu hỏi** ngay trên trình duyệt (lưu localStorage, không cần
+     đăng nhập) — mục "Quiz của bạn".
+   - **Phòng Quiz nhiều người** (`/quiz/room`, kiểu Kahoot): chủ phòng (đã đăng
+     nhập) tạo phòng → nhận **mã 5 ký tự**, mọi người nhập mã + tên để vào
+     (không cần đăng nhập, tới ~100 người). Chủ phòng bấm **Bắt đầu**, tất cả
+     cùng trả lời một câu tại một thời điểm; điểm chấm theo tốc độ dựa trên đồng
+     hồ server (chống gian lận), có bảng xếp hạng trực tiếp giữa các câu. Đồng bộ
+     bằng **Supabase Realtime**; đáp án đúng để ở bảng ẩn `quiz_room_keys` nên
+     client không đọc trước được.
 
 Đây **không phải** bản dựng của game thật (game 3D multiplayer 50 người tự lái
 cùng lúc cần Unreal/Unity + dedicated game server + đồng bộ vật lý realtime,
@@ -140,7 +149,12 @@ app/
   quiz/
     page.js               # Trang quiz + bảng Top cao thủ Quiz
     QuizGame.jsx          # Gameplay quiz kiểu quiz.com (client)
+    QuizCreator.jsx       # Trình tự tạo bộ câu hỏi (client, localStorage)
     actions.js            # Server Action: submitQuizScore
+    room/
+      page.js             # Phòng Quiz nhiều người
+      RoomClient.jsx      # Tạo/join phòng, đồng bộ realtime, chơi đồng thời
+      actions.js          # Server Actions host: createRoom, advanceRoom, closeRoom
   auth/confirm/route.js   # Xử lý link xác nhận email của Supabase
 components/
   RaceDemo.jsx            # Mini-demo lái xe thủ công (Three.js)
@@ -148,7 +162,8 @@ components/
   NavBar.jsx              # Thanh điều hướng + trạng thái đăng nhập
 lib/supabase/
   client.js, server.js, middleware.js, config.js
-lib/quizData.js             # Ngân hàng câu hỏi quiz (3 chủ đề)
+lib/quizData.js             # Ngân hàng câu hỏi quiz (3 chủ đề) + shuffleQuestions
+lib/customQuiz.js           # Lưu/xoá quiz tự tạo trong localStorage
 middleware.js              # Refresh session Supabase trên mọi request
 supabase/schema.sql         # Schema Postgres + seed 50 xe + RLS policies
 GAME_DESIGN.md              # Tài liệu thiết kế game gốc
