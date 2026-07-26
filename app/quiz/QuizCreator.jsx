@@ -222,12 +222,9 @@ export default function QuizCreator({ onSave, onCancel }) {
                         q.multi ? "rounded-md" : "rounded-full"
                       } ${isCorrect ? "border-axis-yellow bg-axis-yellow" : "border-white/40"}`}
                     >
-                      {isCorrect &&
-                        (q.multi ? (
-                          <span className="text-[11px] leading-none font-black text-axis-navy">✓</span>
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-axis-navy" />
-                        ))}
+                      {isCorrect && (
+                        <span className="text-[11px] leading-none font-black text-axis-navy">✓</span>
+                      )}
                     </button>
                     <span className="text-sm shrink-0" style={{ color: tile.bg }}>
                       {tile.shape}
