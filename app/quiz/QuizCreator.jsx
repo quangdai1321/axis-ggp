@@ -75,11 +75,12 @@ export default function QuizCreator({ onSave, onCancel }) {
 
       const answers = q.answers.map((a) => a.trim());
       const filledIdx = answers.map((a, idx) => (a ? idx : -1)).filter((idx) => idx >= 0);
-      if (filledIdx.length < 2) return setError(`Câu ${i + 1}: cần ít nhất 2 đáp án.`);
+      if (filledIdx.length < 2)
+        return setError(`Câu ${i + 1}: hãy GÕ NỘI DUNG cho ít nhất 2 ô đáp án (không chỉ tick chọn).`);
 
       const corrects = q.correctSet.filter((idx) => idx >= 0);
       if (corrects.some((idx) => !answers[idx])) {
-        return setError(`Câu ${i + 1}: có đáp án đúng đang để trống.`);
+        return setError(`Câu ${i + 1}: đáp án đúng bạn đã tick chưa có nội dung — hãy gõ chữ vào ô đó.`);
       }
       if (q.multi) {
         if (corrects.length < 1) return setError(`Câu ${i + 1}: chọn ít nhất 1 đáp án đúng.`);
@@ -200,18 +201,23 @@ export default function QuizCreator({ onSave, onCancel }) {
 
             <p className="text-xs text-white/50 mb-2 font-bold">
               {q.multi
-                ? "Tick tất cả ô ứng với đáp án ĐÚNG (cần ≥ 2 đáp án, chọn ≥ 1 đúng và chừa ≥ 1 sai):"
-                : "Bấm vòng tròn bên trái để chọn 1 đáp án ĐÚNG (cần ≥ 2 đáp án):"}
+                ? "① Gõ nội dung vào các ô (cần ≥ 2 ô có chữ) → ② tick tất cả ô ĐÚNG (chừa ≥ 1 sai):"
+                : "① Gõ nội dung vào các ô đáp án (cần ≥ 2 ô có chữ) → ② bấm vòng tròn chọn ô ĐÚNG:"}
             </p>
             <div className="grid sm:grid-cols-2 gap-2">
               {q.answers.map((ans, ai) => {
                 const tile = TILES[ai];
                 const isCorrect = q.correctSet.includes(ai);
+                const missing = isCorrect && !ans.trim(); // đã tick nhưng chưa có chữ
                 return (
                   <div
                     key={ai}
                     className={`flex items-center gap-2 rounded-xl px-3 py-2 border transition ${
-                      isCorrect ? "border-axis-yellow bg-axis-yellow/10" : "border-white/10 bg-white/5"
+                      missing
+                        ? "border-red-400 bg-red-500/10"
+                        : isCorrect
+                          ? "border-axis-yellow bg-axis-yellow/10"
+                          : "border-white/10 bg-white/5"
                     }`}
                   >
                     <button
@@ -233,8 +239,10 @@ export default function QuizCreator({ onSave, onCancel }) {
                       value={ans}
                       onChange={(e) => updateAnswer(qi, ai, e.target.value)}
                       maxLength={100}
-                      placeholder={`Đáp án ${ai + 1}`}
-                      className="w-full bg-transparent outline-none text-sm"
+                      placeholder={missing ? "⚠ Gõ nội dung đáp án ở đây" : `Nội dung đáp án ${ai + 1}`}
+                      className={`w-full bg-transparent outline-none text-sm ${
+                        missing ? "placeholder-red-300" : ""
+                      }`}
                     />
                   </div>
                 );
