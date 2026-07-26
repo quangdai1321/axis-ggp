@@ -164,6 +164,52 @@ function makeKart(color) {
   return { group: g, wheels };
 }
 
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Nhãn tên người chơi nổi phía trên xe (sprite luôn quay mặt về camera)
+function makeNameSprite(text, colorHex) {
+  const w = 256;
+  const h = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.fillStyle = "rgba(10,26,47,0.82)";
+  roundRectPath(ctx, 6, 12, w - 12, h - 24, 16);
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = colorHex || "#ffffff";
+  roundRectPath(ctx, 6, 12, w - 12, h - 24, 16);
+  ctx.stroke();
+
+  let label = text || "";
+  if (label.length > 14) label = label.slice(0, 13) + "…";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 30px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(label, w / 2, h / 2 + 1);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false })
+  );
+  sprite.scale.set((w / h) * 0.85, 0.85, 1);
+  sprite.position.y = 2.2;
+  return sprite;
+}
+
 function Confetti() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden z-10">
@@ -270,6 +316,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
     const cars = entries.map((e) => {
       const kart = makeKart(new THREE.Color(e.color_hex || "#ffffff"));
+      kart.group.add(makeNameSprite(e.nickname, e.color_hex || "#ffffff"));
       scene.add(kart.group);
       return kart;
     });
@@ -297,13 +344,17 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
       const live = entries.map((entry, i) => {
         const finishTime = entry.finish_time ?? maxFinish;
         const base = Math.min(1, Math.max(0, elapsed / finishTime));
-        // dao động tốc độ (tăng/giảm) giữa chặng để xe rượt đuổi & vượt nhau;
-        // =0 ở đầu và cuối nên vẫn về đích đúng thứ hạng theo finish_time
-        const env = Math.sin(base * Math.PI);
-        const amp = 0.03 + (i % 4) * 0.012;
-        const cyc = 2 + (i % 3);
-        const wobble = env * amp * Math.sin(base * Math.PI * 2 * cyc + i * 1.3);
-        const progress = Math.min(1, Math.max(0, base + wobble));
+        // biến tốc độ (nhanh/chậm) nhưng LUÔN tiến tới — không tụt lùi.
+        // Đây là hàm warp đơn điệu (đạo hàm luôn > 0), chỉnh để progress(0)=0,
+        // progress(1)=1 nên vẫn về đích đúng thứ hạng theo finish_time.
+        const w2 = 6 + (i % 4);
+        const ph = i * 1.7;
+        const A = 0.7 / w2; // A*w2 = 0.7 < 1 -> đạo hàm luôn dương
+        const endErr = A * (Math.sin(ph + w2) - Math.sin(ph));
+        const progress = Math.min(
+          1,
+          Math.max(0, base + A * (Math.sin(ph + w2 * base) - Math.sin(ph)) - base * endErr)
+        );
 
         // xếp xe thành lưới: cột = làn ngang, hàng = lùi dần về sau -> không đè nhau
         const col = i % LANE_COUNT;
