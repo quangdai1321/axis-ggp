@@ -14,14 +14,19 @@ import {
   addCityscape,
 } from "../lib/three/environment";
 
-const SCALE = 0.075; // đổi toạ độ SVG (1400x800) sang mét trong cảnh 3D
-const TRACK_WIDTH = 10;
-const LANE_COUNT = 6;
-const LANE_SPACING = 1.2;
+const SCALE = 0.1; // đổi toạ độ SVG (1400x800) sang mét trong cảnh 3D (to & dài hơn)
+const TRACK_WIDTH = 13;
+const LANE_COUNT = 8; // số làn ngang
+const LANE_SPACING = 1.4;
+const ROW_GAP = 4; // khoảng cách trước-sau giữa các hàng xe (chống chồng lên nhau)
 // camera bám theo xe dẫn đầu (kiểu quay phim)
-const CAM_BACK = 11; // lùi sau xe
-const CAM_HEIGHT = 6; // cao hơn xe
+const CAM_BACK = 12; // lùi sau xe
+const CAM_HEIGHT = 6.5; // cao hơn xe
 const CAM_LOOK_AHEAD = 5; // nhìn về phía trước xe
+// góc máy trên không (bird's-eye), luân phiên với camera bám xe
+const AERIAL_HEIGHT = 32;
+const AERIAL_BACK = 10;
+const CAM_MODE_SECONDS = 8; // đổi góc máy mỗi 8 giây
 const CONFETTI_COLORS = ["#ff6fa1", "#ffcf3a", "#1e9bf0", "#53e07a", "#ff9a3c"];
 
 // Lấy mẫu điểm dọc theo path SVG rồi đổi sang toạ độ 3D (mặt phẳng y=0)
@@ -245,7 +250,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     scene.add(dir);
 
     scene.add(createSkyDome(THREE));
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(700, 700), createGroundMaterial(THREE));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), createGroundMaterial(THREE));
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.03;
     scene.add(ground);
@@ -253,6 +258,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     // đường đua từ path SVG
     const pts = sampleTrackPoints(track.d, 220, track.center.x, track.center.y);
     const curve = new THREE.CatmullRomCurve3(pts, true, "catmullrom", 0.5);
+    const trackLen = curve.getLength();
     let radius = 0;
     pts.forEach((p) => (radius = Math.max(radius, Math.hypot(p.x, p.z))));
 
@@ -290,15 +296,26 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
       const live = entries.map((entry, i) => {
         const finishTime = entry.finish_time ?? maxFinish;
-        const progress = Math.min(1, Math.max(0, elapsed / finishTime));
-        const u = (((progress * laps) % 1) + 1) % 1;
+        const base = Math.min(1, Math.max(0, elapsed / finishTime));
+        // dao động tốc độ (tăng/giảm) giữa chặng để xe rượt đuổi & vượt nhau;
+        // =0 ở đầu và cuối nên vẫn về đích đúng thứ hạng theo finish_time
+        const env = Math.sin(base * Math.PI);
+        const amp = 0.03 + (i % 4) * 0.012;
+        const cyc = 2 + (i % 3);
+        const wobble = env * amp * Math.sin(base * Math.PI * 2 * cyc + i * 1.3);
+        const progress = Math.min(1, Math.max(0, base + wobble));
+
+        // xếp xe thành lưới: cột = làn ngang, hàng = lùi dần về sau -> không đè nhau
+        const col = i % LANE_COUNT;
+        const row = Math.floor(i / LANE_COUNT);
+        const lateral = (col - (LANE_COUNT - 1) / 2) * LANE_SPACING;
+        const dist = progress * laps * trackLen - row * ROW_GAP;
+        const u = (((dist / trackLen) % 1) + 1) % 1;
         curve.getPointAt(u, P);
         curve.getTangentAt(u, T).normalize();
         S.crossVectors(T, up).normalize();
-        const lane = i % LANE_COUNT;
-        const laneOffset = (lane - (LANE_COUNT - 1) / 2) * LANE_SPACING;
         const kart = cars[i];
-        kart.group.position.set(P.x + S.x * laneOffset, 0, P.z + S.z * laneOffset);
+        kart.group.position.set(P.x + S.x * lateral, 0, P.z + S.z * lateral);
         kart.group.rotation.y = Math.atan2(T.x, T.z);
         // quay bánh khi chưa về đích
         if (progress < 1) {
@@ -316,21 +333,31 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
       live.sort((a, b) => b.progress - a.progress);
 
-      // camera bám theo xe dẫn đầu, làm mượt bằng lerp
+      // camera: luân phiên giữa bám xe dẫn đầu (kiểu quay phim) và góc trên không
       const leader = cars[live[0].i].group;
       const h = leader.rotation.y;
       F.set(Math.sin(h), 0, Math.cos(h)); // hướng đầu xe dẫn đầu
-      // lệch nhẹ sang bên (vector bên của xe = (-Fz, Fx)) cho góc 3/4 đẹp hơn
-      desiredPos.set(
-        leader.position.x - F.x * CAM_BACK + -F.z * 2.5,
-        CAM_HEIGHT,
-        leader.position.z - F.z * CAM_BACK + F.x * 2.5
-      );
-      desiredLook.set(
-        leader.position.x + F.x * CAM_LOOK_AHEAD,
-        1.2,
-        leader.position.z + F.z * CAM_LOOK_AHEAD
-      );
+      const aerial = Math.floor(elapsed / CAM_MODE_SECONDS) % 2 === 1;
+      if (aerial) {
+        desiredPos.set(
+          leader.position.x - F.x * AERIAL_BACK,
+          AERIAL_HEIGHT,
+          leader.position.z - F.z * AERIAL_BACK
+        );
+        desiredLook.set(leader.position.x + F.x * 3, 0, leader.position.z + F.z * 3);
+      } else {
+        // lệch nhẹ sang bên (vector bên của xe = (-Fz, Fx)) cho góc 3/4 đẹp hơn
+        desiredPos.set(
+          leader.position.x - F.x * CAM_BACK + -F.z * 3,
+          CAM_HEIGHT,
+          leader.position.z - F.z * CAM_BACK + F.x * 3
+        );
+        desiredLook.set(
+          leader.position.x + F.x * CAM_LOOK_AHEAD,
+          1.2,
+          leader.position.z + F.z * CAM_LOOK_AHEAD
+        );
+      }
       if (!camReady) {
         camera.position.copy(desiredPos);
         smoothLook.copy(desiredLook);
