@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { QUIZ_TOPICS, QUESTION_SECONDS, buildQuizRun } from "@/lib/quizData";
+import { QUIZ_TOPICS, QUESTION_SECONDS, shuffleQuestions } from "@/lib/quizData";
+import { loadCustomQuizzes, saveCustomQuiz, deleteCustomQuiz } from "@/lib/customQuiz";
 import { submitQuizScore } from "./actions";
+import QuizCreator from "./QuizCreator";
 
 // 4 ô đáp án kiểu quiz.com: mỗi ô một màu + một ký hiệu cố định
 const TILES = [
@@ -19,8 +21,9 @@ const CONFETTI_COLORS = ["#ffcf3a", "#ff6fa1", "#1e9bf0", "#53e07a", "#ff9a3c"];
 export default function QuizGame({ username, supabaseReady, topScores }) {
   const router = useRouter();
 
-  const [phase, setPhase] = useState("menu"); // menu | countdown | question | reveal | results
+  const [phase, setPhase] = useState("menu"); // menu | create | countdown | question | reveal | results
   const [topic, setTopic] = useState(null);
+  const [customQuizzes, setCustomQuizzes] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [qIndex, setQIndex] = useState(0);
   const [countdown, setCountdown] = useState(3);
@@ -46,6 +49,19 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
   }, []);
 
   useEffect(() => clearTimers, [clearTimers]);
+
+  // localStorage chỉ có ở client → nạp danh sách quiz tự tạo sau khi mount
+  useEffect(() => {
+    setCustomQuizzes(loadCustomQuizzes());
+  }, []);
+
+  function handleCreateSave(quiz) {
+    setCustomQuizzes(saveCustomQuiz(quiz));
+    startTopic(quiz);
+  }
+  function handleDeleteCustom(id) {
+    setCustomQuizzes(deleteCustomQuiz(id));
+  }
 
   // ---- Âm thanh: bíp nhẹ bằng WebAudio, không cần file ----
   const tone = useCallback((freq, duration, delay = 0, type = "sine", volume = 0.12) => {
@@ -84,7 +100,7 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
     (t) => {
       clearTimers();
       setTopic(t);
-      setQuestions(buildQuizRun(t.id));
+      setQuestions(shuffleQuestions(t.questions));
       setQIndex(0);
       setScore(0);
       setStreak(0);
@@ -177,7 +193,7 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
   // Lưu điểm 1 lần khi vào màn kết quả (nếu đã đăng nhập)
   useEffect(() => {
     if (phase !== "results" || savedRef.current) return;
-    if (!supabaseReady || !username) return;
+    if (!supabaseReady || !username || topic?.isCustom) return;
     savedRef.current = true;
     setSaveState("saving");
     submitQuizScore({
@@ -197,10 +213,15 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
 
   // ================= RENDER =================
 
+  if (phase === "create") {
+    return <QuizCreator onSave={handleCreateSave} onCancel={() => setPhase("menu")} />;
+  }
+
   if (phase === "menu") {
     return (
       <div>
-        <div className="grid sm:grid-cols-3 gap-4 mb-12">
+        <h2 className="font-display font-extrabold text-lg mb-4">Chủ đề có sẵn</h2>
+        <div className="grid sm:grid-cols-3 gap-4 mb-6">
           {QUIZ_TOPICS.map((t) => (
             <button
               key={t.id}
@@ -223,6 +244,60 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
             </button>
           ))}
         </div>
+
+        {/* Quiz tự tạo */}
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-extrabold text-lg">Quiz của bạn</h2>
+          <button
+            onClick={() => setPhase("create")}
+            className="bg-axis-yellow text-axis-navy font-extrabold text-sm px-4 py-1.5 rounded-full hover:scale-105 transition"
+          >
+            + Tạo quiz mới
+          </button>
+        </div>
+
+        {customQuizzes.length > 0 ? (
+          <div className="grid sm:grid-cols-3 gap-4 mb-12">
+            {customQuizzes.map((t) => (
+              <div
+                key={t.id}
+                className="relative bg-white/5 border border-white/10 rounded-2xl p-5 hover:border-axis-yellow hover:-translate-y-1 transition group"
+              >
+                <button
+                  onClick={() => handleDeleteCustom(t.id)}
+                  title="Xóa bộ quiz này"
+                  className="absolute top-3 right-3 z-10 w-7 h-7 rounded-full bg-white/10 hover:bg-red-500/80 text-white/70 hover:text-white text-sm transition"
+                >
+                  ✕
+                </button>
+                <button onClick={() => startTopic(t)} className="text-left w-full">
+                  <div
+                    className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl mb-3"
+                    style={{ backgroundColor: `${t.color}33` }}
+                  >
+                    {t.emoji}
+                  </div>
+                  <h3 className="font-display font-extrabold text-lg mb-1 pr-6 group-hover:text-axis-yellow transition">
+                    {t.name}
+                  </h3>
+                  <span className="inline-block text-[10px] font-extrabold bg-white/10 text-white/60 px-2 py-0.5 rounded-full mb-2">
+                    TỰ TẠO
+                  </span>
+                  <p className="text-xs font-extrabold text-white/40">
+                    {t.questions.length} câu hỏi · {QUESTION_SECONDS}s/câu
+                  </p>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <button
+            onClick={() => setPhase("create")}
+            className="w-full border-2 border-dashed border-white/20 rounded-2xl py-8 mb-12 font-bold text-white/50 hover:border-axis-yellow hover:text-axis-yellow transition"
+          >
+            Chưa có bộ quiz nào — bấm để tự tạo câu hỏi của riêng bạn ✏️
+          </button>
+        )}
 
         <QuizLeaderboard topScores={topScores} supabaseReady={supabaseReady} />
       </div>
@@ -378,7 +453,9 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
       </div>
 
       <div className="mb-10 text-sm font-bold">
-        {!supabaseReady ? (
+        {topic.isCustom ? (
+          <span className="text-white/40">Quiz tự tạo — điểm không tính vào bảng xếp hạng.</span>
+        ) : !supabaseReady ? (
           <span className="text-white/40">Chưa cấu hình Supabase — điểm không được lưu.</span>
         ) : !username ? (
           <span className="text-white/60">
