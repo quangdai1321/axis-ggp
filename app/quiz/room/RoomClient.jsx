@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { QUESTION_SECONDS } from "@/lib/quizData";
+import { loadCustomQuizzes } from "@/lib/customQuiz";
 import { createRoom, advanceRoom, closeRoom } from "./actions";
 
 const TILES = [
@@ -56,6 +57,7 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   const [busy, setBusy] = useState(false);
 
   const [selectedTopic, setSelectedTopic] = useState(topics[0]?.id ?? "");
+  const [customQuizzes, setCustomQuizzes] = useState([]);
 
   // đồng hồ đếm ngược cục bộ, gắn với ĐÚNG chỉ số câu đang mở để tránh
   // tính nhầm "đã hết giờ" ở render đầu tiên của mỗi câu (gây tự nộp trống)
@@ -69,6 +71,11 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   const getSupabase = useCallback(() => {
     if (!supabaseRef.current) supabaseRef.current = createClient();
     return supabaseRef.current;
+  }, []);
+
+  // nạp bộ quiz tự tạo (localStorage) để chủ phòng chọn dùng cho phòng
+  useEffect(() => {
+    setCustomQuizzes(loadCustomQuizzes());
   }, []);
 
   const fetchRoom = useCallback(
@@ -228,7 +235,18 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   async function handleCreate() {
     setCreateError("");
     setBusy(true);
-    const res = await createRoom({ topicId: selectedTopic });
+    let res;
+    if (selectedTopic.startsWith("custom:")) {
+      const cq = customQuizzes.find((q) => `custom:${q.id}` === selectedTopic);
+      if (!cq) {
+        setBusy(false);
+        setCreateError("Không tìm thấy bộ quiz tự tạo.");
+        return;
+      }
+      res = await createRoom({ custom: { name: cq.name, questions: cq.questions } });
+    } else {
+      res = await createRoom({ topicId: selectedTopic });
+    }
     setBusy(false);
     if (res.error) {
       setCreateError(res.error);
@@ -356,17 +374,30 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
           <h2 className="font-display font-extrabold text-xl mb-1">Tạo phòng (chủ phòng)</h2>
           {username ? (
             <>
-              <p className="text-white/50 text-sm mb-4">Chọn chủ đề rồi chia mã cho mọi người.</p>
+              <p className="text-white/50 text-sm mb-4">
+                Chọn chủ đề (hoặc bộ quiz tự tạo) rồi chia mã cho mọi người.
+              </p>
               <select
                 value={selectedTopic}
                 onChange={(e) => setSelectedTopic(e.target.value)}
                 className="w-full bg-white/10 border border-white/15 rounded-xl px-4 py-2.5 mb-3 outline-none focus:border-axis-yellow"
               >
-                {topics.map((t) => (
-                  <option key={t.id} value={t.id} className="bg-axis-navy">
-                    {t.emoji} {t.name} ({t.count} câu)
-                  </option>
-                ))}
+                <optgroup label="Chủ đề có sẵn" className="bg-axis-navy">
+                  {topics.map((t) => (
+                    <option key={t.id} value={t.id} className="bg-axis-navy">
+                      {t.emoji} {t.name} ({t.count} câu)
+                    </option>
+                  ))}
+                </optgroup>
+                {customQuizzes.length > 0 && (
+                  <optgroup label="Quiz tự tạo của bạn" className="bg-axis-navy">
+                    {customQuizzes.map((q) => (
+                      <option key={q.id} value={`custom:${q.id}`} className="bg-axis-navy">
+                        {q.emoji || "📝"} {q.name} ({q.questions.length} câu)
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               {createError && <p className="text-red-400 text-sm font-bold mb-3">{createError}</p>}
               <button

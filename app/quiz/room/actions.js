@@ -11,19 +11,48 @@ function genCode() {
   return s;
 }
 
-export async function createRoom({ topicId }) {
+export async function createRoom({ topicId, custom }) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Chỉ chủ phòng (đã đăng nhập) mới tạo được phòng." };
 
-  const topic = getTopic(topicId);
-  if (!topic) return { error: "Chủ đề không hợp lệ." };
+  let topicIdVal;
+  let topicName;
+  let questions;
+  let answerKey;
 
-  const run = shuffleQuestions(topic.questions);
-  const questions = run.map((q) => ({ text: q.text, answers: q.answers }));
-  const answerKey = run.map((q) => q.correct);
+  if (custom && Array.isArray(custom.questions) && custom.questions.length > 0) {
+    // bộ câu hỏi tự tạo do client gửi lên — chỉ hỗ trợ câu 1 đáp án đúng
+    for (const q of custom.questions) {
+      if (!q || typeof q.text !== "string" || !Array.isArray(q.answers) || q.answers.length < 2) {
+        return { error: "Bộ câu hỏi không hợp lệ." };
+      }
+      if (Array.isArray(q.correct)) {
+        return {
+          error: "Phòng nhiều người hiện chỉ hỗ trợ câu 1 đáp án đúng — bộ này có câu nhiều đáp án.",
+        };
+      }
+      const c = Number(q.correct);
+      if (!Number.isInteger(c) || c < 0 || c >= q.answers.length) {
+        return { error: "Bộ câu hỏi không hợp lệ (đáp án đúng)." };
+      }
+    }
+    const run = shuffleQuestions(custom.questions);
+    questions = run.map((q) => ({ text: q.text, answers: q.answers }));
+    answerKey = run.map((q) => q.correct);
+    topicIdVal = "custom";
+    topicName = String(custom.name || "Quiz tự tạo").slice(0, 60);
+  } else {
+    const topic = getTopic(topicId);
+    if (!topic) return { error: "Chủ đề không hợp lệ." };
+    const run = shuffleQuestions(topic.questions);
+    questions = run.map((q) => ({ text: q.text, answers: q.answers }));
+    answerKey = run.map((q) => q.correct);
+    topicIdVal = topic.id;
+    topicName = topic.name;
+  }
 
   let code = null;
   let roomId = null;
@@ -35,8 +64,8 @@ export async function createRoom({ topicId }) {
       .insert({
         code: candidate,
         host_id: user.id,
-        topic_id: topic.id,
-        topic_name: topic.name,
+        topic_id: topicIdVal,
+        topic_name: topicName,
         questions,
         status: "lobby",
         current_index: -1,
