@@ -62,10 +62,15 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   const [selectedTopic, setSelectedTopic] = useState(topics[0]?.id ?? "");
   const [customQuizzes, setCustomQuizzes] = useState([]);
 
-  // đồng hồ đếm ngược cục bộ, gắn với ĐÚNG chỉ số câu đang mở để tránh
-  // tính nhầm "đã hết giờ" ở render đầu tiên của mỗi câu (gây tự nộp trống)
-  const [timer, setTimer] = useState({ index: -1, startedAt: 0 });
-  const [nowTs, setNowTs] = useState(() => Date.now());
+  // Đồng bộ theo ĐỒNG HỒ SERVER: đo độ lệch giờ client↔server một lần, rồi mọi
+  // người đếm ngược từ cùng mốc question_started_at -> hết giờ cùng lúc.
+  const clockOffsetRef = useRef(0); // ms cộng vào Date.now() để ra giờ server
+  const [clockReady, setClockReady] = useState(false);
+  const localStartRef = useRef({ index: -1, at: 0 }); // dự phòng khi lệch giờ bất thường
+  const [revealedIndex, setRevealedIndex] = useState(-1);
+  const barRef = useRef(null); // cập nhật thanh giờ trực tiếp qua DOM (60fps, không re-render)
+  const secRef = useRef(null);
+
   const [myAnswer, setMyAnswer] = useState(null); // { answerIndex, gained, isCorrect, correctIndex }
   const submittedRef = useRef(false);
   const revealDoneRef = useRef(-1);
@@ -80,6 +85,31 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   useEffect(() => {
     setCustomQuizzes(loadCustomQuizzes());
   }, []);
+
+  // ---- Đo độ lệch đồng hồ client ↔ server (lấy mẫu tốt nhất theo độ trễ) ----
+  useEffect(() => {
+    if (!supabaseReady) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = getSupabase();
+      let best = null;
+      for (let i = 0; i < 3; i++) {
+        const t0 = Date.now();
+        const { data, error } = await supabase.rpc("server_now");
+        const t1 = Date.now();
+        if (error || !data) break; // chưa chạy SQL mới -> dùng dự phòng cục bộ
+        const rtt = t1 - t0;
+        const offset = new Date(data).getTime() - (t0 + rtt / 2);
+        if (!best || rtt < best.rtt) best = { rtt, offset };
+      }
+      if (cancelled) return;
+      clockOffsetRef.current = best ? best.offset : 0;
+      setClockReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabaseReady, getSupabase]);
 
   const fetchRoom = useCallback(
     async (roomId) => {
@@ -137,23 +167,52 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
     };
   }, [room?.id, supabaseReady, getSupabase]);
 
-  // ---- Khi sang câu mới: đặt lại đồng hồ + trạng thái trả lời ----
+  // ---- Khi sang câu mới: mốc dự phòng + đặt lại trạng thái trả lời ----
   useEffect(() => {
     if (room?.status === "playing") {
-      setTimer({ index: room.current_index, startedAt: Date.now() });
-      setNowTs(Date.now());
+      localStartRef.current = { index: room.current_index, at: Date.now() };
       setMyAnswer(null);
       submittedRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.status, room?.current_index]);
 
-  // ---- Tick đồng hồ khi đang chơi ----
+  // Số giây đã trôi của câu hiện tại, tính theo ĐỒNG HỒ SERVER.
+  // Nếu chưa đo được độ lệch hoặc giá trị vô lý (đồng hồ máy sai lệch lớn),
+  // rơi về mốc cục bộ từ lúc máy này nhận được câu hỏi.
+  const getElapsed = useCallback(() => {
+    if (room?.status !== "playing") return 0;
+    const startedMs = room.question_started_at ? new Date(room.question_started_at).getTime() : NaN;
+    if (clockReady && Number.isFinite(startedMs)) {
+      const e = (Date.now() + clockOffsetRef.current - startedMs) / 1000;
+      if (e >= -1 && e < QUESTION_SECONDS + 60) return Math.max(0, e);
+    }
+    const local = localStartRef.current;
+    if (local.index === room.current_index) return (Date.now() - local.at) / 1000;
+    return 0;
+  }, [room?.status, room?.current_index, room?.question_started_at, clockReady]);
+
+  // ---- Vòng lặp 60fps: vẽ thanh giờ trực tiếp qua DOM (mượt, không re-render) ----
   useEffect(() => {
     if (room?.status !== "playing") return;
-    const id = setInterval(() => setNowTs(Date.now()), 100);
-    return () => clearInterval(id);
-  }, [room?.status, room?.current_index]);
+    let raf;
+    const loop = () => {
+      const left = Math.max(0, QUESTION_SECONDS - getElapsed());
+      const pct = (left / QUESTION_SECONDS) * 100;
+      if (barRef.current) {
+        barRef.current.style.width = `${pct}%`;
+        barRef.current.style.backgroundColor =
+          pct > 50 ? "#53e07a" : pct > 25 ? "#ffcf3a" : "#e74c3c";
+      }
+      if (secRef.current) secRef.current.textContent = `${Math.ceil(left)}s`;
+      if (left <= 0 && revealDoneRef.current !== room.current_index) {
+        setRevealedIndex(room.current_index);
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, [room?.status, room?.current_index, getElapsed]);
 
   // ---- Poll danh sách người chơi ở sảnh chờ ----
   useEffect(() => {
@@ -163,11 +222,8 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
     return () => clearInterval(id);
   }, [room?.id, room?.status, fetchPlayers]);
 
-  // chỉ tính giờ khi đồng hồ đã được khởi tạo cho ĐÚNG câu hiện tại
-  const timerReady = room?.status === "playing" && timer.index === room.current_index;
-  const elapsed = timerReady ? (nowTs - timer.startedAt) / 1000 : 0;
-  const timeLeft = Math.max(0, QUESTION_SECONDS - elapsed);
-  const revealNow = timerReady && elapsed >= QUESTION_SECONDS;
+  const revealNow = room?.status === "playing" && revealedIndex === room.current_index;
+  const timeLeft = Math.max(0, QUESTION_SECONDS - getElapsed());
   const currentQuestion =
     room?.status === "playing" && Array.isArray(room.questions)
       ? room.questions[room.current_index]
@@ -525,7 +581,8 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
 
         <div className="h-2.5 bg-white/10 rounded-full overflow-hidden mb-6">
           <div
-            className="h-full rounded-full transition-[width] duration-100 ease-linear"
+            ref={barRef}
+            className="h-full rounded-full"
             style={{ width: `${pct}%`, backgroundColor: timerColor }}
           />
         </div>
@@ -539,6 +596,7 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
           </h2>
           {!revealNow && (
             <span
+              ref={secRef}
               className="absolute top-3 right-4 font-display font-extrabold text-lg"
               style={{ color: timerColor }}
             >

@@ -432,6 +432,16 @@ $$;
 
 grant execute on function public.submit_quiz_room_answer(text, bigint, text, int, int) to anon, authenticated;
 
+-- Giờ của server: client gọi để đo độ lệch đồng hồ, nhờ đó mọi người trong
+-- phòng đếm ngược theo cùng một mốc thời gian (đồng bộ tuyệt đối).
+create or replace function public.server_now()
+returns timestamptz
+language sql
+stable
+as $$ select now() $$;
+
+grant execute on function public.server_now() to anon, authenticated;
+
 -- =========================================================
 -- 6. Bật Realtime cho Sảnh chờ (ai chọn/bỏ xe thấy ngay không cần refresh)
 -- =========================================================
