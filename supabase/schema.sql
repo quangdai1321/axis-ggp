@@ -375,7 +375,7 @@ declare
   v_frac numeric;
   v_gained int := 0;
   v_correctb boolean := false;
-  v_qsec constant int := 20;
+  v_qsec constant int := 10; -- khớp QUESTION_SECONDS (10s) ở RoomClient.jsx
   v_inserted boolean := false;
 begin
   select * into v_room from public.quiz_rooms where code = upper(btrim(p_code));

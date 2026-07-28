@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { QUESTION_SECONDS } from "@/lib/quizData";
 import { loadCustomQuizzes } from "@/lib/customQuiz";
 import { createRoom, advanceRoom, closeRoom } from "./actions";
+
+// Mỗi câu trong phòng nhiều người: 10 giây, hết 10s mới đồng loạt hiện đúng/sai.
+// (Phải khớp với hằng v_qsec trong hàm submit_quiz_room_answer ở schema.sql.)
+const QUESTION_SECONDS = 10;
 
 const TILES = [
   { shape: "▲", bg: "#e74c3c", fg: "#fff" },
