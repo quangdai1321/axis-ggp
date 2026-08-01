@@ -72,6 +72,7 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   const secRef = useRef(null);
 
   const [myAnswer, setMyAnswer] = useState(null); // { answerIndex, gained, isCorrect, correctIndex }
+  const [pointFloat, setPointFloat] = useState(null); // mốc điểm hiện lúc bấm
   const submittedRef = useRef(false);
   const revealDoneRef = useRef(-1);
 
@@ -172,6 +173,7 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
     if (room?.status === "playing") {
       localStartRef.current = { index: room.current_index, at: Date.now() };
       setMyAnswer(null);
+      setPointFloat(null);
       submittedRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -271,6 +273,15 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
   async function doSubmit(answerIndex) {
     if (submittedRef.current || !membership || !room) return;
     submittedRef.current = true;
+    if (answerIndex !== null) {
+      // mốc điểm nếu đúng, tính theo đúng thời điểm bấm (server chấm cùng công thức)
+      const left = Math.max(0, QUESTION_SECONDS - getElapsed());
+      setPointFloat({
+        key: Date.now(),
+        value: Math.round(500 + 500 * (left / QUESTION_SECONDS)),
+        secs: left,
+      });
+    }
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc("submit_quiz_room_answer", {
       p_code: room.code,
@@ -619,6 +630,20 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
             )}
           </div>
         )}
+
+        {/* Mốc điểm bay lên ngay lúc bấm */}
+        <div className="relative">
+          {pointFloat && !revealNow && (
+            <div
+              key={pointFloat.key}
+              className="quiz-float-up pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 z-20 text-center"
+            >
+              <span className="bg-axis-yellow text-axis-navy font-display font-extrabold px-4 py-1.5 rounded-full shadow-lg whitespace-nowrap">
+                +{pointFloat.value.toLocaleString("vi")} đ · ⏱ {pointFloat.secs.toFixed(1)}s
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* Ô đáp án */}
         <div key={`ra-${room.current_index}`} className="quiz-fade-in grid sm:grid-cols-2 gap-3 mb-6">

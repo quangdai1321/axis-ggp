@@ -38,6 +38,10 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
   const [correctCount, setCorrectCount] = useState(0);
   const [lastGain, setLastGain] = useState(0);
   const [saveState, setSaveState] = useState("idle"); // idle | saving | saved | error
+  // mốc điểm hiện lên ngay lúc bấm: { key, value, secs }
+  const [pointFloat, setPointFloat] = useState(null);
+  // thời điểm bấm gần nhất (giây còn lại) — dùng để chốt điểm câu nhiều đáp án
+  const lockedLeftRef = useRef(0);
 
   const timerRef = useRef(null);
   const advanceRef = useRef(null);
@@ -143,6 +147,8 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
     setChosen(null);
     setSelected([]);
     selectedRef.current = [];
+    setPointFloat(null);
+    lockedLeftRef.current = 0;
     setTimeLeft(QUESTION_SECONDS);
     const startedAt = Date.now();
     timerRef.current = setInterval(() => {
@@ -150,7 +156,12 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
       if (left <= 0) {
         setTimeLeft(0);
         const q = questions[qIndex];
-        answer(q?.multi ? selectedRef.current : null, 0);
+        if (q?.multi) {
+          // chốt theo thời điểm bấm gần nhất, không phải lúc hết giờ
+          answer(selectedRef.current, selectedRef.current.length ? lockedLeftRef.current : 0);
+        } else {
+          answer(null, 0);
+        }
       } else {
         setTimeLeft(left);
       }
@@ -214,7 +225,19 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
     }, REVEAL_MS);
   }
 
+  // Điểm sẽ nhận nếu đáp án đúng, tính theo thời điểm bấm (bấm càng sớm càng cao)
+  function potentialGain(left) {
+    return Math.round(500 + 500 * (left / QUESTION_SECONDS)) + 50 * Math.min(streak, 6);
+  }
+
+  function showPointFloat(left) {
+    lockedLeftRef.current = left;
+    setPointFloat({ key: Date.now(), value: potentialGain(left), secs: left });
+  }
+
   function toggleSelect(i) {
+    // mỗi lần đổi lựa chọn là chốt lại mốc điểm theo thời điểm bấm mới nhất
+    showPointFloat(timeLeft);
     setSelected((prev) => (prev.includes(i) ? prev.filter((x) => x !== i) : [...prev, i]));
   }
 
@@ -432,6 +455,20 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
           </div>
         )}
 
+        {/* Mốc điểm bay lên ngay lúc bấm */}
+        <div className="relative">
+          {pointFloat && !revealing && (
+            <div
+              key={pointFloat.key}
+              className="quiz-float-up pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 z-20 text-center"
+            >
+              <span className="bg-axis-yellow text-axis-navy font-display font-extrabold px-4 py-1.5 rounded-full shadow-lg whitespace-nowrap">
+                +{pointFloat.value.toLocaleString("vi")} đ · ⏱ {pointFloat.secs.toFixed(1)}s
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* Ô đáp án */}
         <div key={`a-${qIndex}`} className="quiz-fade-in grid sm:grid-cols-2 gap-3">
           {q.answers.map((ans, i) => {
@@ -455,7 +492,13 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
               <button
                 key={`${qIndex}-${i}`}
                 disabled={revealing}
-                onClick={() => (isMulti ? toggleSelect(i) : answer(i))}
+                onClick={() => {
+                  if (isMulti) toggleSelect(i);
+                  else {
+                    showPointFloat(timeLeft);
+                    answer(i);
+                  }
+                }}
                 className={`flex items-center gap-4 rounded-2xl px-5 py-5 sm:py-6 font-extrabold text-left text-base sm:text-lg transition ${extra}`}
                 style={{ backgroundColor: tile.bg, color: tile.fg }}
               >
@@ -472,6 +515,15 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
         {isMulti && !revealing && (
           <p className="text-center text-white/50 text-sm font-bold mt-5">
             Đã chọn {selected.length} — có thể đổi ý, hết giờ sẽ tự chốt.
+            {selected.length > 0 && (
+              <>
+                {" "}
+                Mốc điểm đang giữ:{" "}
+                <span className="text-axis-yellow">
+                  +{potentialGain(lockedLeftRef.current).toLocaleString("vi")}
+                </span>
+              </>
+            )}
           </p>
         )}
       </div>
