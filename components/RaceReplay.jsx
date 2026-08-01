@@ -241,24 +241,30 @@ function makeStartLine(curve, width) {
   return group;
 }
 
-// Vạch tim đường đứt quãng
+// Vạch tim đường đứt quãng — gộp thành 1 InstancedMesh (1 draw call)
 function makeCenterDashes(curve, count) {
-  const group = new THREE.Group();
   const geo = new THREE.PlaneGeometry(0.22, 1.6);
   const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32 });
+  const mesh = new THREE.InstancedMesh(geo, mat, count);
   const P = new THREE.Vector3();
   const T = new THREE.Vector3();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const one = new THREE.Vector3(1, 1, 1);
+  const m4 = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
   for (let i = 0; i < count; i++) {
     const u = i / count;
     curve.getPointAt(u, P);
     curve.getTangentAt(u, T).normalize();
-    const m = new THREE.Mesh(geo, mat);
-    m.rotation.x = -Math.PI / 2;
-    m.rotation.z = -Math.atan2(T.x, T.z);
-    m.position.set(P.x, 0.05, P.z);
-    group.add(m);
+    e.set(-Math.PI / 2, 0, -Math.atan2(T.x, T.z), "XYZ");
+    q.setFromEuler(e);
+    pos.set(P.x, 0.05, P.z);
+    m4.compose(pos, q, one);
+    mesh.setMatrixAt(i, m4);
   }
-  return group;
+  mesh.instanceMatrix.needsUpdate = true;
+  return mesh;
 }
 
 // Cổng xuất phát bắc ngang đường đua
@@ -339,33 +345,51 @@ function addTrackside(scene, curve, width) {
     scene.add(g);
   });
 
-  // cờ tam giác dọc hai bên
-  const flagColors = [0xff6fa1, 0xffcf3a, 0x1e9bf0, 0x53e07a];
-  const poleMat = new THREE.MeshStandardMaterial({ color: 0xcfd6e4 });
-  const flagGeo = new THREE.PlaneGeometry(0.9, 0.55);
-  for (let i = 0; i < 40; i++) {
-    const u = i / 40;
+  // cờ dọc hai bên — gộp thành 2 InstancedMesh (cột + cờ) thay vì hàng trăm mesh rời
+  const SPOTS = 26;
+  const total = SPOTS * 2;
+  const poleMesh = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.05, 0.05, 2.6, 6),
+    new THREE.MeshStandardMaterial({ color: 0xcfd6e4 }),
+    total
+  );
+  const flagMesh = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.9, 0.55),
+    new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, roughness: 0.8 }),
+    total
+  );
+  const flagColors = [0xff6fa1, 0xffcf3a, 0x1e9bf0, 0x53e07a].map((c) => new THREE.Color(c));
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const one = new THREE.Vector3(1, 1, 1);
+  const m4 = new THREE.Matrix4();
+  const pos = new THREE.Vector3();
+  let n = 0;
+  for (let i = 0; i < SPOTS; i++) {
+    const u = i / SPOTS;
     curve.getPointAt(u, P);
     curve.getTangentAt(u, T).normalize();
     S.crossVectors(T, up).normalize();
-    [-1, 1].forEach((sgn) => {
+    for (const sgn of [-1, 1]) {
       const off = (width / 2 + 1.6) * sgn;
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 6), poleMat);
-      pole.position.set(P.x + S.x * off, 1.3, P.z + S.z * off);
-      scene.add(pole);
-      const flag = new THREE.Mesh(
-        flagGeo,
-        new THREE.MeshStandardMaterial({
-          color: flagColors[i % flagColors.length],
-          side: THREE.DoubleSide,
-          roughness: 0.8,
-        })
-      );
-      flag.position.set(P.x + S.x * off + T.x * 0.45, 2.2, P.z + S.z * off + T.z * 0.45);
-      flag.rotation.y = Math.atan2(T.x, T.z);
-      scene.add(flag);
-    });
+      pos.set(P.x + S.x * off, 1.3, P.z + S.z * off);
+      m4.compose(pos, new THREE.Quaternion(), one);
+      poleMesh.setMatrixAt(n, m4);
+
+      e.set(0, Math.atan2(T.x, T.z), 0, "XYZ");
+      q.setFromEuler(e);
+      pos.set(P.x + S.x * off + T.x * 0.45, 2.2, P.z + S.z * off + T.z * 0.45);
+      m4.compose(pos, q, one);
+      flagMesh.setMatrixAt(n, m4);
+      flagMesh.setColorAt(n, flagColors[i % flagColors.length]);
+      n++;
+    }
   }
+  poleMesh.instanceMatrix.needsUpdate = true;
+  flagMesh.instanceMatrix.needsUpdate = true;
+  if (flagMesh.instanceColor) flagMesh.instanceColor.needsUpdate = true;
+  scene.add(poleMesh);
+  scene.add(flagMesh);
 }
 
 // Hồ bụi bay sau xe (particle pool tái sử dụng)
@@ -517,20 +541,28 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
       antialias: true,
       powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // nhiều xe -> hạ chất lượng để giữ khung hình mượt
+    const heavy = entries.length > 16;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, heavy ? 1.35 : 1.75));
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = heavy ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
     renderer.setClearColor(0x0a1a2f, 1);
     mount.appendChild(renderer.domElement);
 
-    // hậu kỳ: bloom cho ánh sáng nở mềm như game hiện đại
+    // hậu kỳ: bloom cho ánh sáng nở mềm như game hiện đại.
+    // Chạy ở nửa độ phân giải — nhìn gần như y hệt mà nhẹ hơn nhiều.
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.42, 0.75, 0.82);
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(Math.round(width / 2), Math.round(height / 2)),
+      0.42,
+      0.75,
+      0.82
+    );
     composer.addPass(bloom);
     composer.setSize(width, height);
 
@@ -538,7 +570,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     const dir = new THREE.DirectionalLight(0xfff4d6, 1.5);
     dir.position.set(40, 70, 25);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.mapSize.set(heavy ? 1024 : 2048, heavy ? 1024 : 2048);
     dir.shadow.bias = -0.0008;
     scene.add(dir);
 
@@ -567,7 +599,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     addTrackside(scene, curve, TRACK_WIDTH);
     addCityscape(scene, THREE, radius);
 
-    const dust = makeDust(DUST_COUNT);
+    const dust = makeDust(heavy ? Math.round(DUST_COUNT / 2) : DUST_COUNT);
     scene.add(dust.points);
 
     // khung chiếu bóng ôm vừa đường đua để bóng nét
@@ -582,7 +614,11 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
     const cars = entries.map((e) => {
       const kart = makeKart(new THREE.Color(e.color_hex || "#ffffff"));
-      kart.group.add(makeNameSprite(e.nickname, e.color_hex || "#ffffff"));
+      // đông xe -> chỉ vài xe đổ bóng, tránh 50 lượt vẽ bóng mỗi khung hình
+      if (heavy) kart.group.traverse((o) => (o.castShadow = false));
+      const sprite = makeNameSprite(e.nickname, e.color_hex || "#ffffff");
+      kart.group.add(sprite);
+      kart.sprite = sprite;
       scene.add(kart.group);
       return kart;
     });
@@ -700,13 +736,22 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
           nickname: entry.nickname,
           progress,
           finished: progress >= 1,
+          finishTime,
           colorHex: entry.color_hex || "#ffffff",
           x: px,
           z: pz,
         };
       });
 
-      live.sort((a, b) => b.progress - a.progress);
+      // Xe đã về đích xếp theo THỜI GIAN về đích (ai cán vạch trước đứng trên);
+      // xe còn chạy xếp theo quãng đường đã đi. Nếu chỉ so `progress` thì mọi xe
+      // về đích đều bằng 1 -> hoà và rơi về thứ tự id, gây sai thứ hạng.
+      live.sort((a, b) => {
+        if (a.finished && b.finished) return a.finishTime - b.finishTime;
+        if (a.finished) return -1;
+        if (b.finished) return 1;
+        return b.progress - a.progress;
+      });
 
       // lửa tăng tốc: top 3 và chưa về đích
       for (let k = 0; k < live.length; k++) {
@@ -823,7 +868,16 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
         }
       }
 
-      if (!lastPush || now - lastPush > 200) {
+      // chỉ hiện nhãn tên của xe đủ gần camera -> bớt rất nhiều lượt vẽ
+      for (let k = 0; k < live.length; k++) {
+        const kart = cars[live[k].i];
+        if (kart.sprite) {
+          kart.sprite.visible =
+            kart.group.position.distanceToSquared(camera.position) < 55 * 55 && k < 16;
+        }
+      }
+
+      if (!lastPush || now - lastPush > 300) {
         lastPush = now;
         setStandings(live);
         setHud({
@@ -847,7 +901,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
         camera.updateProjectionMatrix();
         renderer.setSize(width, height);
         composer.setSize(width, height);
-        bloom.setSize(width, height);
+        bloom.setSize(Math.round(width / 2), Math.round(height / 2));
       }
     });
     ro.observe(mount);

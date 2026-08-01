@@ -468,17 +468,11 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
           })}
         </div>
 
-        {/* Nút xác nhận cho câu nhiều đáp án */}
+        {/* Câu nhiều đáp án: cứ chọn/bỏ chọn thoải mái, hết giờ tự chốt */}
         {isMulti && !revealing && (
-          <div className="text-center mt-5">
-            <button
-              onClick={() => answer(selected)}
-              disabled={selected.length === 0}
-              className="bg-axis-yellow text-axis-navy font-extrabold px-8 py-2.5 rounded-full hover:scale-105 transition disabled:opacity-40"
-            >
-              Xác nhận ({selected.length})
-            </button>
-          </div>
+          <p className="text-center text-white/50 text-sm font-bold mt-5">
+            Đã chọn {selected.length} — có thể đổi ý, hết giờ sẽ tự chốt.
+          </p>
         )}
       </div>
     );
