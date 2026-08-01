@@ -27,6 +27,8 @@ const CAM_LOOK_AHEAD = 5; // nhìn về phía trước xe
 const AERIAL_HEIGHT = 32;
 const AERIAL_BACK = 10;
 const CAM_MODE_SECONDS = 8; // đổi góc máy mỗi 8 giây
+const CAM_MODES = ["chase", "aerial", "side"];
+const CAM_MODE_LABEL = { chase: "Bám xe", aerial: "Trên không", side: "Bên hông" };
 const CONFETTI_COLORS = ["#ff6fa1", "#ffcf3a", "#1e9bf0", "#53e07a", "#ff9a3c"];
 
 // Lấy mẫu điểm dọc theo path SVG rồi đổi sang toạ độ 3D (mặt phẳng y=0)
@@ -124,44 +126,145 @@ function buildEdge(curve, offset, width, segments, material, y) {
 // để quay bánh trong lúc chạy.
 function makeKart(color) {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.1, 0.35, 1.9),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1 })
+  // `tilt` nhận độ nghiêng khi vào cua + nhún nhẹ, để group gốc giữ nguyên hướng
+  const tilt = new THREE.Group();
+  g.add(tilt);
+
+  const bodyMat = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.35,
+    metalness: 0.35,
+  });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.32, 1.9), bodyMat);
+  body.position.y = 0.36;
+  body.castShadow = true;
+  tilt.add(body);
+
+  // thân dưới bo hẹp cho dáng thể thao
+  const skirt = new THREE.Mesh(
+    new THREE.BoxGeometry(1.24, 0.14, 1.5),
+    new THREE.MeshStandardMaterial({ color: 0x11151f, roughness: 0.7 })
   );
-  body.position.y = 0.34;
-  g.add(body);
+  skirt.position.y = 0.2;
+  tilt.add(skirt);
 
   const cabin = new THREE.Mesh(
-    new THREE.BoxGeometry(0.78, 0.34, 0.9),
-    new THREE.MeshStandardMaterial({ color: 0x1b2740, roughness: 0.4 })
+    new THREE.BoxGeometry(0.74, 0.3, 0.8),
+    new THREE.MeshStandardMaterial({ color: 0x1b2740, roughness: 0.25, metalness: 0.5 })
   );
-  cabin.position.set(0, 0.66, -0.08);
-  g.add(cabin);
+  cabin.position.set(0, 0.66, -0.1);
+  cabin.castShadow = true;
+  tilt.add(cabin);
 
-  const nose = new THREE.Mesh(
-    new THREE.BoxGeometry(0.9, 0.16, 0.5),
-    new THREE.MeshStandardMaterial({ color })
+  // tay đua (mũ bảo hiểm)
+  const helmet = new THREE.Mesh(
+    new THREE.SphereGeometry(0.19, 12, 10),
+    new THREE.MeshStandardMaterial({ color: 0xf2f5ff, roughness: 0.3 })
   );
-  nose.position.set(0, 0.28, 1.0);
-  g.add(nose);
+  helmet.position.set(0, 0.87, -0.12);
+  helmet.castShadow = true;
+  tilt.add(helmet);
+
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.14, 0.55), bodyMat);
+  nose.position.set(0, 0.3, 1.05);
+  nose.castShadow = true;
+  tilt.add(nose);
+
+  // cánh gió sau
+  const wingMat = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.5 });
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.07, 0.34), wingMat);
+  wing.position.set(0, 0.86, -1.0);
+  wing.castShadow = true;
+  tilt.add(wing);
+  [-0.48, 0.48].forEach((x) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.32, 0.08), wingMat);
+    post.position.set(x, 0.68, -1.0);
+    tilt.add(post);
+  });
 
   // trục bánh nằm dọc x (bake sẵn vào geometry) -> quay bánh bằng rotation.x
-  const wheelGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.24, 12);
+  const wheelGeo = new THREE.CylinderGeometry(0.32, 0.32, 0.26, 14);
   wheelGeo.rotateZ(Math.PI / 2);
-  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.8 });
+  const wheelMat = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.85 });
   const wheels = [];
   [
-    [0.62, 0.3, 0.62],
-    [-0.62, 0.3, 0.62],
-    [0.62, 0.3, -0.62],
-    [-0.62, 0.3, -0.62],
+    [0.64, 0.32, 0.62],
+    [-0.64, 0.32, 0.62],
+    [0.64, 0.32, -0.64],
+    [-0.64, 0.32, -0.64],
   ].forEach(([x, y, z]) => {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
     w.position.set(x, y, z);
-    g.add(w);
-    wheels.push(w);
+    w.castShadow = true;
+    tilt.add(w);
   });
-  return { group: g, wheels };
+
+  // luồng lửa tăng tốc (chỉ bật cho top 3)
+  const boost = new THREE.Mesh(
+    new THREE.ConeGeometry(0.22, 0.9, 10, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x8fe3ff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    })
+  );
+  // xoay để đỉnh nón chĩa về phía sau xe (-z)
+  boost.rotation.x = -Math.PI / 2;
+  boost.position.set(0, 0.38, -1.35);
+  tilt.add(boost);
+
+  return { group: g, tilt, wheels, boost };
+}
+
+// Vạch xuất phát ca-rô cắt ngang mặt đường
+function makeStartLine(curve, width) {
+  const P = curve.getPointAt(0);
+  const T = curve.getTangentAt(0).normalize();
+  const S = new THREE.Vector3().crossVectors(T, new THREE.Vector3(0, 1, 0)).normalize();
+
+  const cells = 12;
+  const cellW = width / cells;
+  const group = new THREE.Group();
+  const geo = new THREE.PlaneGeometry(cellW, 1.1);
+  const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const black = new THREE.MeshBasicMaterial({ color: 0x14161d });
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < cells; c++) {
+      const m = new THREE.Mesh(geo, (r + c) % 2 === 0 ? white : black);
+      m.rotation.x = -Math.PI / 2;
+      const off = (c - (cells - 1) / 2) * cellW;
+      m.position.set(
+        P.x + S.x * off + T.x * (r * 1.1),
+        0.06,
+        P.z + S.z * off + T.z * (r * 1.1)
+      );
+      m.rotation.z = -Math.atan2(T.x, T.z);
+      group.add(m);
+    }
+  }
+  return group;
+}
+
+// Vạch tim đường đứt quãng
+function makeCenterDashes(curve, count) {
+  const group = new THREE.Group();
+  const geo = new THREE.PlaneGeometry(0.22, 1.6);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 });
+  const P = new THREE.Vector3();
+  const T = new THREE.Vector3();
+  for (let i = 0; i < count; i++) {
+    const u = i / count;
+    curve.getPointAt(u, P);
+    curve.getTangentAt(u, T).normalize();
+    const m = new THREE.Mesh(geo, mat);
+    m.rotation.x = -Math.PI / 2;
+    m.rotation.z = -Math.atan2(T.x, T.z);
+    m.position.set(P.x, 0.05, P.z);
+    group.add(m);
+  }
+  return group;
 }
 
 function roundRectPath(ctx, x, y, w, h, r) {
@@ -234,6 +337,7 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
   const autoFinishedRef = useRef(false);
   const [standings, setStandings] = useState([]);
   const [raceOver, setRaceOver] = useState(false);
+  const [hud, setHud] = useState(null); // { leader, lap, mode }
 
   const track = getTrackById(trackId);
 
@@ -283,22 +387,34 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
     const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 1000);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance",
+    });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // tone-mapping điện ảnh cho màu dịu & tương phản hiện đại hơn
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.12;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.setClearColor(0x0a1a2f, 1);
     mount.appendChild(renderer.domElement);
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x557755, 1.05));
-    const dir = new THREE.DirectionalLight(0xfff4d6, 1.2);
-    dir.position.set(30, 60, 20);
+    scene.add(new THREE.HemisphereLight(0xdff1ff, 0x4e7a52, 1.0));
+    const dir = new THREE.DirectionalLight(0xfff4d6, 1.45);
+    dir.position.set(40, 70, 25);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.bias = -0.0008;
     scene.add(dir);
 
     scene.add(createSkyDome(THREE));
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(1000, 1000), createGroundMaterial(THREE));
     ground.rotation.x = -Math.PI / 2;
     ground.position.y = -0.03;
+    ground.receiveShadow = true;
     scene.add(ground);
 
     // đường đua từ path SVG
@@ -308,11 +424,25 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     let radius = 0;
     pts.forEach((p) => (radius = Math.max(radius, Math.hypot(p.x, p.z))));
 
-    scene.add(buildRibbon(curve, TRACK_WIDTH, 360, createTrackMaterial(THREE), 0.02));
-    scene.add(buildEdge(curve, TRACK_WIDTH / 2, 0.45, 360, createCurbMaterial(THREE), 0.05));
-    scene.add(buildEdge(curve, -TRACK_WIDTH / 2, 0.45, 360, createCurbMaterial(THREE), 0.05));
+    const road = buildRibbon(curve, TRACK_WIDTH, 420, createTrackMaterial(THREE), 0.02);
+    road.receiveShadow = true;
+    scene.add(road);
+    scene.add(buildEdge(curve, TRACK_WIDTH / 2, 0.5, 420, createCurbMaterial(THREE), 0.05));
+    scene.add(buildEdge(curve, -TRACK_WIDTH / 2, 0.5, 420, createCurbMaterial(THREE), 0.05));
+    scene.add(makeCenterDashes(curve, 90));
+    scene.add(makeStartLine(curve, TRACK_WIDTH));
 
     addCityscape(scene, THREE, radius);
+
+    // khung chiếu bóng ôm vừa đường đua để bóng nét
+    const shadowSpan = radius + 25;
+    dir.shadow.camera.left = -shadowSpan;
+    dir.shadow.camera.right = shadowSpan;
+    dir.shadow.camera.top = shadowSpan;
+    dir.shadow.camera.bottom = -shadowSpan;
+    dir.shadow.camera.near = 1;
+    dir.shadow.camera.far = 400;
+    dir.shadow.camera.updateProjectionMatrix();
 
     const cars = entries.map((e) => {
       const kart = makeKart(new THREE.Color(e.color_hex || "#ffffff"));
@@ -335,6 +465,8 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
     let lastPush = 0;
     let lastT = performance.now();
     let frameId;
+    const prevHeading = new Float32Array(entries.length);
+    const roll = new Float32Array(entries.length);
 
     function frame(now) {
       const dt = Math.min(0.05, (now - lastT) / 1000);
@@ -367,10 +499,23 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
         S.crossVectors(T, up).normalize();
         const kart = cars[i];
         kart.group.position.set(P.x + S.x * lateral, 0, P.z + S.z * lateral);
-        kart.group.rotation.y = Math.atan2(T.x, T.z);
+        const heading = Math.atan2(T.x, T.z);
+        kart.group.rotation.y = heading;
+
+        // nghiêng thân xe theo độ gắt của cua (mượt dần) + nhún nhẹ khi chạy
+        let dh = heading - prevHeading[i];
+        while (dh > Math.PI) dh -= Math.PI * 2;
+        while (dh < -Math.PI) dh += Math.PI * 2;
+        prevHeading[i] = heading;
+        const targetRoll = dt > 0 ? Math.max(-0.3, Math.min(0.3, (dh / dt) * 0.16)) : 0;
+        roll[i] += (targetRoll - roll[i]) * (1 - Math.exp(-8 * dt));
+        kart.tilt.rotation.z = roll[i];
+        kart.tilt.position.y =
+          progress < 1 ? Math.sin(now * 0.011 + i * 2.1) * 0.022 : 0;
+
         // quay bánh khi chưa về đích
         if (progress < 1) {
-          for (let w = 0; w < kart.wheels.length; w++) kart.wheels[w].rotation.x -= dt * 14;
+          for (let w = 0; w < kart.wheels.length; w++) kart.wheels[w].rotation.x -= dt * 16;
         }
         return {
           i,
@@ -384,18 +529,36 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
 
       live.sort((a, b) => b.progress - a.progress);
 
-      // camera: luân phiên giữa bám xe dẫn đầu (kiểu quay phim) và góc trên không
+      // lửa tăng tốc: chỉ top 3 và khi chưa về đích
+      for (let k = 0; k < live.length; k++) {
+        const kart = cars[live[k].i];
+        const on = k < 3 && !live[k].finished;
+        const target = on ? 0.5 + Math.sin(now * 0.02 + k) * 0.22 : 0;
+        const m = kart.boost.material;
+        m.opacity += (target - m.opacity) * (1 - Math.exp(-10 * dt));
+        kart.boost.scale.y = 0.85 + m.opacity * 0.6; // trục y = chiều dài nón
+      }
+
+      // camera: luân phiên 3 góc máy quanh xe dẫn đầu
       const leader = cars[live[0].i].group;
       const h = leader.rotation.y;
       F.set(Math.sin(h), 0, Math.cos(h)); // hướng đầu xe dẫn đầu
-      const aerial = Math.floor(elapsed / CAM_MODE_SECONDS) % 2 === 1;
-      if (aerial) {
+      const mode = CAM_MODES[Math.floor(elapsed / CAM_MODE_SECONDS) % CAM_MODES.length];
+      if (mode === "aerial") {
         desiredPos.set(
           leader.position.x - F.x * AERIAL_BACK,
           AERIAL_HEIGHT,
           leader.position.z - F.z * AERIAL_BACK
         );
         desiredLook.set(leader.position.x + F.x * 3, 0, leader.position.z + F.z * 3);
+      } else if (mode === "side") {
+        // bám ngang thân xe, thấp sát mặt đường cho cảm giác tốc độ
+        desiredPos.set(
+          leader.position.x - F.z * 9,
+          2.6,
+          leader.position.z + F.x * 9
+        );
+        desiredLook.set(leader.position.x, 0.9, leader.position.z);
       } else {
         // lệch nhẹ sang bên (vector bên của xe = (-Fz, Fx)) cho góc 3/4 đẹp hơn
         desiredPos.set(
@@ -414,14 +577,20 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
         smoothLook.copy(desiredLook);
         camReady = true;
       } else {
-        camera.position.lerp(desiredPos, 0.045);
-        smoothLook.lerp(desiredLook, 0.07);
+        // damping độc lập tốc độ khung hình -> mượt như nhau ở 30/60/120fps
+        camera.position.lerp(desiredPos, 1 - Math.exp(-3.2 * dt));
+        smoothLook.lerp(desiredLook, 1 - Math.exp(-5 * dt));
       }
       camera.lookAt(smoothLook);
 
       if (!lastPush || now - lastPush > 200) {
         lastPush = now;
         setStandings(live);
+        setHud({
+          leader: live[0].nickname,
+          lap: Math.min(laps, Math.floor(live[0].progress * laps) + 1),
+          mode: CAM_MODE_LABEL[mode],
+        });
       }
       if (elapsed >= maxFinish) setRaceOver(true);
 
@@ -486,6 +655,26 @@ export default function RaceReplay({ entries, laps, startedAt, status, trackId, 
         </div>
 
         <div ref={mountRef} className="relative w-full aspect-video">
+          {hud && !raceOver && (
+            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-3 sm:p-4 z-10">
+              <div className="bg-black/45 backdrop-blur-sm rounded-xl px-3 py-2 border border-white/10">
+                <p className="text-[10px] uppercase tracking-widest text-white/50 font-extrabold">
+                  Dẫn đầu
+                </p>
+                <p className="font-display font-extrabold text-axis-yellow leading-tight">
+                  👑 {hud.leader}
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-1.5">
+                <span className="bg-black/45 backdrop-blur-sm rounded-full px-3 py-1 border border-white/10 font-display font-extrabold text-sm">
+                  VÒNG {hud.lap}/{laps}
+                </span>
+                <span className="bg-black/45 backdrop-blur-sm rounded-full px-3 py-1 border border-white/10 text-[11px] font-bold text-white/70">
+                  🎥 {hud.mode}
+                </span>
+              </div>
+            </div>
+          )}
           {raceOver && (
             <>
               <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center z-10">
