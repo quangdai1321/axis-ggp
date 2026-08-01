@@ -426,10 +426,16 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
           key={`q-${qIndex}`}
           className="quiz-fade-in bg-white/5 border border-white/10 rounded-2xl px-6 py-8 text-center mb-6 relative"
         >
+          <span
+            className={`inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full mb-3 border ${
+              isMulti
+                ? "bg-axis-pink/20 text-axis-pink border-axis-pink/50"
+                : "bg-axis-blue/20 text-axis-blue border-axis-blue/50"
+            }`}
+          >
+            {isMulti ? "☑ Chọn nhiều đáp án đúng" : "◉ Chỉ chọn 1 đáp án"}
+          </span>
           <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">{q.text}</h2>
-          {isMulti && (
-            <p className="text-white/50 text-xs font-bold mt-2">Chọn tất cả đáp án đúng</p>
-          )}
           {!revealing && (
             <span
               className="absolute top-3 right-4 font-display font-extrabold text-lg"
@@ -503,9 +509,23 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
                 style={{ backgroundColor: tile.bg, color: tile.fg }}
               >
                 <span className="text-2xl shrink-0">{tile.shape}</span>
-                <span>{ans}</span>
-                {revealing && isCorrect && <span className="ml-auto text-2xl">✓</span>}
-                {!revealing && isPicked && <span className="ml-auto text-xl">✓</span>}
+                <span className="flex-1">{ans}</span>
+                {/* ô chọn: TRÒN = chỉ chọn 1 · VUÔNG = chọn nhiều */}
+                <span
+                  className={`shrink-0 w-6 h-6 border-2 border-current flex items-center justify-center text-sm font-black ${
+                    isMulti ? "rounded-md" : "rounded-full"
+                  } ${revealing && !isCorrect && !isChosen ? "opacity-40" : ""}`}
+                >
+                  {revealing
+                    ? isCorrect
+                      ? "✓"
+                      : isChosen
+                        ? "✕"
+                        : ""
+                    : (isMulti ? isPicked : isChosen)
+                      ? "✓"
+                      : ""}
+                </span>
               </button>
             );
           })}

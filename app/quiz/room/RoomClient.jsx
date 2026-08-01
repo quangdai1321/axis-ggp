@@ -602,6 +602,9 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
           key={`rq-${room.current_index}`}
           className="quiz-fade-in bg-white/5 border border-white/10 rounded-2xl px-6 py-10 text-center mb-6 relative"
         >
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full mb-3 border bg-axis-blue/20 text-axis-blue border-axis-blue/50">
+            ◉ Chỉ chọn 1 đáp án
+          </span>
           <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">
             {currentQuestion.text}
           </h2>
@@ -672,8 +675,15 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
                 style={{ backgroundColor: tile.bg, color: tile.fg }}
               >
                 <span className="text-2xl shrink-0">{tile.shape}</span>
-                <span>{ans}</span>
-                {revealNow && isCorrect && <span className="ml-auto text-2xl">✓</span>}
+                <span className="flex-1">{ans}</span>
+                {/* ô chọn TRÒN = chỉ chọn 1 đáp án */}
+                <span
+                  className={`shrink-0 w-6 h-6 rounded-full border-2 border-current flex items-center justify-center text-sm font-black ${
+                    revealNow && !isCorrect && !chosen ? "opacity-40" : ""
+                  }`}
+                >
+                  {revealNow ? (isCorrect ? "✓" : chosen ? "✕" : "") : chosen ? "✓" : ""}
+                </span>
               </button>
             );
           })}
