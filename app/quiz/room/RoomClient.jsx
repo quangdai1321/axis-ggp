@@ -605,9 +605,19 @@ export default function RoomClient({ username, userId, supabaseReady, topics }) 
           <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider px-3 py-1 rounded-full mb-3 border bg-axis-blue/20 text-axis-blue border-axis-blue/50">
             ◉ Chỉ chọn 1 đáp án
           </span>
-          <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">
-            {currentQuestion.text}
-          </h2>
+          {currentQuestion.image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={currentQuestion.image}
+              alt=""
+              className="max-h-52 sm:max-h-64 rounded-xl mb-4 mx-auto border border-white/10"
+            />
+          )}
+          {currentQuestion.text && (
+            <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">
+              {currentQuestion.text}
+            </h2>
+          )}
           {!revealNow && (
             <span
               ref={secRef}

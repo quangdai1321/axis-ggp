@@ -14,9 +14,37 @@ const EMOJIS = ["📝", "🎯", "🧠", "🎮", "🎵", "⚽", "🌟", "🍔", "
 const COLORS = ["#1e9bf0", "#ff6fa1", "#53e07a", "#ff9a3c", "#9b59b6", "#ffcf3a"];
 const MAX_QUESTIONS = 20;
 
+// Ảnh được thu nhỏ trước khi lưu — localStorage chỉ ~5MB nên không thể
+// nhét ảnh gốc vài MB vào được.
+const MAX_IMAGE_DIM = 720;
+const IMAGE_QUALITY = 0.72;
+
+function fileToScaledDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Không đọc được tệp ảnh."));
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onerror = () => reject(new Error("Tệp này không phải ảnh hợp lệ."));
+      img.onload = () => {
+        const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 // multi=false: chọn đúng 1 đáp án đúng. multi=true: chọn nhiều đáp án đúng.
 function emptyQuestion() {
-  return { text: "", answers: ["", "", "", ""], multi: false, correctSet: [0] };
+  return { text: "", image: null, answers: ["", "", "", ""], multi: false, correctSet: [0] };
 }
 
 export default function QuizCreator({ onSave, onCancel }) {
@@ -56,6 +84,20 @@ export default function QuizCreator({ onSave, onCancel }) {
       })
     );
   }
+  async function handleImagePick(qi, file) {
+    if (!file) return;
+    setError("");
+    try {
+      const dataUrl = await fileToScaledDataUrl(file);
+      setQuestions((qs) => qs.map((q, i) => (i === qi ? { ...q, image: dataUrl } : q)));
+    } catch (err) {
+      setError(err.message || "Không thêm được ảnh.");
+    }
+  }
+  function removeImage(qi) {
+    setQuestions((qs) => qs.map((q, i) => (i === qi ? { ...q, image: null } : q)));
+  }
+
   function addQuestion() {
     setQuestions((qs) => (qs.length >= MAX_QUESTIONS ? qs : [...qs, emptyQuestion()]));
   }
@@ -71,7 +113,8 @@ export default function QuizCreator({ onSave, onCancel }) {
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
       const text = q.text.trim();
-      if (!text) return setError(`Câu ${i + 1}: chưa nhập nội dung câu hỏi.`);
+      // có ảnh thì cho phép câu hỏi không cần chữ (kiểu "đây là hình gì?")
+      if (!text && !q.image) return setError(`Câu ${i + 1}: chưa nhập câu hỏi (hoặc thêm ảnh).`);
 
       const answers = q.answers.map((a) => a.trim());
       const filledIdx = answers.map((a, idx) => (a ? idx : -1)).filter((idx) => idx >= 0);
@@ -95,24 +138,36 @@ export default function QuizCreator({ onSave, onCancel }) {
       if (q.multi) {
         cleaned.push({
           text,
+          image: q.image || null,
           answers: keptAnswers,
           multi: true,
           correct: corrects.map(remap).sort((a, b) => a - b),
         });
       } else {
-        cleaned.push({ text, answers: keptAnswers, correct: remap(corrects[0]) });
+        cleaned.push({
+          text,
+          image: q.image || null,
+          answers: keptAnswers,
+          correct: remap(corrects[0]),
+        });
       }
     }
 
-    onSave({
-      id: `custom:${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name: trimmedName,
-      emoji,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
-      isCustom: true,
-      createdAt: new Date().toISOString(),
-      questions: cleaned,
-    });
+    try {
+      onSave({
+        id: `custom:${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        name: trimmedName,
+        emoji,
+        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+        isCustom: true,
+        createdAt: new Date().toISOString(),
+        questions: cleaned,
+      });
+    } catch {
+      setError(
+        "Không lưu được: bộ nhớ trình duyệt đã đầy. Hãy bớt ảnh, dùng ảnh nhỏ hơn, hoặc xoá bớt bộ quiz cũ."
+      );
+    }
   }
 
   return (
@@ -173,6 +228,45 @@ export default function QuizCreator({ onSave, onCancel }) {
               placeholder="Nhập câu hỏi..."
               className="w-full bg-white/10 border border-white/15 rounded-xl px-4 py-2.5 mb-3 outline-none focus:border-axis-yellow"
             />
+
+            {/* Ảnh minh hoạ (tuỳ chọn) */}
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <span className="text-xs text-white/50 font-bold">Ảnh:</span>
+              <label className="cursor-pointer bg-white/10 hover:bg-white/20 transition px-3 py-1 rounded-full text-xs font-bold">
+                {q.image ? "🖼 Đổi ảnh" : "📷 Thêm ảnh"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    handleImagePick(qi, e.target.files?.[0]);
+                    e.target.value = ""; // cho phép chọn lại cùng tệp
+                  }}
+                />
+              </label>
+              {q.image && (
+                <button
+                  type="button"
+                  onClick={() => removeImage(qi)}
+                  className="text-red-400 hover:text-red-300 text-xs font-bold"
+                >
+                  Xoá ảnh
+                </button>
+              )}
+              {!q.image && (
+                <span className="text-[11px] text-white/35">
+                  không bắt buộc — ảnh sẽ tự thu nhỏ
+                </span>
+              )}
+            </div>
+            {q.image && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={q.image}
+                alt=""
+                className="max-h-44 rounded-xl mb-3 mx-auto border border-white/10"
+              />
+            )}
 
             {/* Chọn loại câu hỏi */}
             <div className="flex items-center gap-2 mb-3">

@@ -435,7 +435,17 @@ export default function QuizGame({ username, supabaseReady, topScores }) {
           >
             {isMulti ? "☑ Chọn nhiều đáp án đúng" : "◉ Chỉ chọn 1 đáp án"}
           </span>
-          <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">{q.text}</h2>
+          {q.image && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={q.image}
+              alt=""
+              className="max-h-52 sm:max-h-64 rounded-xl mb-4 mx-auto border border-white/10"
+            />
+          )}
+          {q.text && (
+            <h2 className="font-display font-extrabold text-xl sm:text-2xl leading-snug">{q.text}</h2>
+          )}
           {!revealing && (
             <span
               className="absolute top-3 right-4 font-display font-extrabold text-lg"

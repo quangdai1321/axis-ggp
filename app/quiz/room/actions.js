@@ -40,7 +40,14 @@ export async function createRoom({ topicId, custom }) {
       }
     }
     const run = shuffleQuestions(custom.questions);
-    questions = run.map((q) => ({ text: q.text, answers: q.answers }));
+    questions = run.map((q) => ({ text: q.text, image: q.image || null, answers: q.answers }));
+    // ảnh nhúng dạng data URL -> chặn bộ quá nặng để không phình dòng DB
+    const payloadKb = JSON.stringify(questions).length / 1024;
+    if (payloadKb > 2600) {
+      return {
+        error: "Bộ câu hỏi có ảnh quá nặng để mở phòng. Hãy bớt ảnh hoặc dùng ảnh nhỏ hơn.",
+      };
+    }
     answerKey = run.map((q) => q.correct);
     topicIdVal = "custom";
     topicName = String(custom.name || "Quiz tự tạo").slice(0, 60);
